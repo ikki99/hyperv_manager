@@ -1,566 +1,862 @@
 
 
-import flet as ft
+import PySimpleGUI as sg
+import sys
 import os
-from powershell_utils import get_vms_data, start_vm, shutdown_vm, stop_vm, check_hyperv_status, install_hyperv, get_vswitches, remove_vswitch, get_network_adapters, create_vswitch, get_nat_networks, get_nat_rules, add_nat_rule, remove_nat_rule, get_online_images, get_local_images, create_new_vm
+import webbrowser
+from powershell_utils import (
+    get_vms_data, start_vm, shutdown_vm, stop_vm, delete_vm, connect_vm,
+    check_hyperv_status, install_hyperv, get_vswitches, 
+    remove_vswitch, get_network_adapters, create_vswitch, 
+    get_nat_networks, get_nat_rules, add_nat_rule, remove_nat_rule, 
+    get_online_images, get_local_images, create_new_vm,
+    set_vswitch_ip, create_nat_network, get_vswitch_ip_addresses,
+    get_vm_network_adapters, connect_vm_to_switch, disconnect_vm_from_switch,
+    get_vm_network_adapter_status
+)
+
+# --- Helper Functions ---
+def refresh_vm_table(window):
+    vms = get_vms_data()
+    vm_data = []
+    if vms:
+        for vm in vms:
+            # Check network status
+            net_status = "未知"
+            adapters_status = get_vm_network_adapter_status(vm.get('Name'))
+            if not adapters_status:
+                net_status = "无网卡"
+            else:
+                is_connected = False
+                has_error = False
+                for adapter in adapters_status:
+                    # In PowerShell, status is an enum, e.g., {Degraded, NotConnected, Ok}
+                    # We get it as a string 'Degraded', 'NotConnected', 'Ok'
+                    if adapter.get('Status') != 'Ok':
+                        has_error = True
+                        break
+                    if adapter.get('SwitchName'):
+                        is_connected = True
+                
+                if has_error:
+                    net_status = "状态异常"
+                elif is_connected:
+                    net_status = "已连接"
+                else:
+                    net_status = "未连接"
+
+            vm_data.append([
+                vm.get('Name', 'N/A'), 
+                vm.get('State', 'N/A'), 
+                net_status,
+                vm.get('GuestOS', 'N/A'), 
+                ", ".join(vm.get('IPAddresses') if isinstance(vm.get('IPAddresses'), list) else [])
+            ])
+
+    window["-VM_TABLE-"].update(values=vm_data)
+    # Disable buttons after refresh
+    window["-START_VM-"].update(disabled=True)
+    window["-SHUTDOWN_VM-"].update(disabled=True)
+    window["-STOP_VM-"].update(disabled=True)
+    window["-DELETE_VM-"].update(disabled=True)
+    window["-CONNECT_VM-"].update(disabled=True)
+    window["-CONFIG_VM_NET-"].update(disabled=True)
+
+
+def refresh_vswitch_table(window):
+    switches = get_vswitches()
+    nats = get_nat_networks()
+    nat_names = [n['Name'] for n in nats] if nats else []
+    ip_addresses = get_vswitch_ip_addresses()
+    
+    vswitch_data = []
+    if switches:
+        for switch in switches:
+            details = ""
+            switch_name = switch.get('Name', 'N/A')
+            if switch.get('SwitchType') == 'Internal':
+                nat_status = "NAT: 已启用" if switch_name in nat_names else "NAT: 未启用"
+                gateway = ip_addresses.get(switch_name, "未设置")
+                details = f"{nat_status}, 网关: {gateway}"
+            else:
+                details = "不适用"
+
+            vswitch_data.append([
+                switch_name,
+                switch.get('SwitchType', 'N/A'),
+                details,
+                switch.get('Notes', '')
+            ])
+    window["-VSWITCH_TABLE-"].update(values=vswitch_data)
+    window["-DELETE_VSWITCH-"].update(disabled=True)
+    window["-NAT_PANEL-"].update(visible=False)
+
+def create_vswitch_window():
+    adapter_list = get_network_adapters()
+
+    type_mapping = {"外部": "External", "内部": "Internal", "专用": "Private"}
+    reverse_type_mapping = {v: k for k, v in type_mapping.items()}
+
+    descriptions = {
+        "External": "将虚拟机连接到物理网络。需要绑定一个物理网卡。\n警告: 这会改变物理网卡的网络配置，可能导致现有网络连接(包括远程桌面)中断。",
+        "Internal": "创建一个仅在当前主机上的虚拟机之间以及虚拟机与主机之间通信的交换机。\n虚拟机无法访问外部网络，但可以和主机互相访问。",
+        "Private": "创建一个仅在当前主机上的虚拟机之间通信的交换机。\n虚拟机之间可以互相通信，但无法与主机或外部网络通信。"
+    }
+    
+    layout = [
+        [sg.Text("交换机名称:"), sg.Input(key="-NAME-")],
+        [sg.Text("交换机类型:"), sg.Combo(list(type_mapping.keys()), default_value=reverse_type_mapping["Internal"], key="-TYPE-", readonly=True, enable_events=True)],
+        [sg.Text("物理网卡:", visible=False, key="-ADAPTER_LABEL-"), sg.Combo(adapter_list, key="-ADAPTER-", visible=False, readonly=True)],
+        [sg.Frame('说明', [[sg.Text(descriptions["Internal"], key="-DESC-", size=(50, 4))]])],
+        [sg.Button("创建", key="-SUBMIT-"), sg.Button("取消")]
+    ]
+    
+    window = sg.Window("创建虚拟交换机", layout, modal=True)
+    
+    while True:
+        event, values = window.read()
+        if event in (sg.WIN_CLOSED, "取消"):
+            break
+        
+        if event == "-TYPE-":
+            selected_type_chinese = values["-TYPE-"]
+            switch_type_english = type_mapping[selected_type_chinese]
+            is_external = switch_type_english == "External"
+            window["-ADAPTER_LABEL-"].update(visible=is_external)
+            window["-ADAPTER-"].update(visible=is_external)
+            window["-DESC-"].update(descriptions[switch_type_english])
+            
+        if event == "-SUBMIT-":
+            name = values["-NAME-"]
+            selected_type_chinese = values["-TYPE-"]
+            switch_type_english = type_mapping[selected_type_chinese]
+            adapter = values["-ADAPTER-"] if switch_type_english == "External" else None
+            
+            if not name:
+                sg.popup_error("交换机名称不能为空！")
+                continue
+            if switch_type_english == "External" and not adapter:
+                sg.popup_error("外部交换机必须选择一个物理网卡！")
+                continue
+                
+            success, output = create_vswitch(name, switch_type_english, adapter)
+            if success:
+                sg.popup("交换机创建成功！")
+                break
+            else:
+                sg.popup_error(f"创建失败: {output}")
+                
+    window.close()
+
+
 from download_manager import DownloadManager
-from config import load_config, save_config
 
-def main(page: ft.Page):
-    page.title = "Hyper-V 统一管理器"
-    page.window_width = 1200
-    page.window_height = 800
+def create_add_nat_rule_window(nat_name):
+    layout = [
+        [sg.Text("协议:"), sg.Combo(["TCP", "UDP"], default_value="TCP", key="-PROTO-", readonly=True)],
+        [sg.Text("外部端口:"), sg.Input(key="-EXT_PORT-")],
+        [sg.Text("内部IP地址:"), sg.Input(key="-INT_IP-")],
+        [sg.Text("内部端口:"), sg.Input(key="-INT_PORT-")],
+        [sg.Button("添加"), sg.Button("取消")]
+    ]
+    window = sg.Window("添加端口转发规则", layout, modal=True)
+    rule_added = False
+    while True:
+        event, values = window.read()
+        if event in (sg.WIN_CLOSED, "取消"):
+            break
+        if event == "添加":
+            if not all([values["-EXT_PORT-"], values["-INT_IP-"], values["-INT_PORT-"]]):
+                sg.popup_error("所有字段都不能为空！")
+                continue
+            try:
+                ext_port = int(values["-EXT_PORT-"])
+                int_port = int(values["-INT_PORT-"])
+            except ValueError:
+                sg.popup_error("端口号必须是数字！")
+                continue
 
-    config = load_config()
-
-    # --- Download Manager Setup ---
-    download_tasks_list = ft.Column([], scroll=ft.ScrollMode.ADAPTIVE, expand=True)
-
-    def on_download_progress(download_id, progress, downloaded_size, total_size):
-        for item in download_tasks_list.controls:
-            if isinstance(item, ft.Card) and item.data == download_id:
-                item.content.content.controls[1].controls[0].value = progress / 100
-                item.content.content.controls[1].controls[1].value = f"{progress:.1f}% ({downloaded_size / (1024*1024):.2f}MB / {total_size / (1024*1024):.2f}MB)"
-                page.update()
-                return
-
-    def on_download_complete(download_id, filepath):
-        for item in download_tasks_list.controls:
-            if isinstance(item, ft.Card) and item.data == download_id:
-                item.content.content.controls[0].controls[1].value = "已完成"
-                item.content.content.controls[0].controls[1].color = "green"
-                item.content.content.controls[1].controls[0].value = 1.0
-                item.content.content.controls[1].controls[1].value = "100%"
-                page.update()
-                return
-
-    def on_download_error(download_id, error_message):
-        for item in download_tasks_list.controls:
-            if isinstance(item, ft.Card) and item.data == download_id:
-                item.content.content.controls[0].controls[1].value = f"失败: {error_message}"
-                item.content.content.controls[0].controls[1].color = "red"
-                page.update()
-                return
-
-    dm = DownloadManager(download_folder=config.get("download_folder", "./downloads"), on_progress=on_download_progress, on_complete=on_download_complete, on_error=on_download_error)
-
-    # --- Helper Functions ---
-    def create_help_button(title, content_text):
-        def open_help_dialog(e):
-            page.dialog = ft.AlertDialog(
-                modal=True,
-                title=ft.Text(title),
-                content=ft.Text(content_text),
-                actions=[ft.TextButton("关闭", on_click=lambda e: setattr(page.dialog, "open", False) or page.update())],
-                actions_alignment=ft.MainAxisAlignment.END,
+            success, output = add_nat_rule(
+                nat_name=nat_name,
+                protocol=values["-PROTO-"],
+                external_port=ext_port,
+                internal_ip=values["-INT_IP-"],
+                internal_port=int_port
             )
-            page.dialog.open = True
-            page.update()
-        return ft.IconButton(icon=ft.Icons.HELP_OUTLINE, on_click=open_help_dialog)
+            if success:
+                sg.popup("规则添加成功！")
+                rule_added = True
+                break
+            else:
+                sg.popup_error(f"添加失败: {output}")
+    window.close()
+    return rule_added
 
-    # --- VM View ---
-    vm_table = ft.DataTable(columns=[
-        ft.DataColumn(ft.Text("名称")),
-        ft.DataColumn(ft.Text("状态")),
-        ft.DataColumn(ft.Text("操作系统")),
-        ft.DataColumn(ft.Text("IP地址")),
-        ft.DataColumn(ft.Text("CPU使用率")),
-        ft.DataColumn(ft.Text("内存(MB)"))
-    ], rows=[])
 
-    selected_vm_name = ft.Text(size=20, weight=ft.FontWeight.BOLD)
-    detail_state = ft.Text()
-    detail_os = ft.Text()
-    detail_ip = ft.Text()
-    detail_cpu = ft.Text()
-    detail_mem = ft.Text()
+def build_online_images_layout():
+    images = get_online_images()
+    layout = []
+    # Create a grid with 2 columns
+    for i in range(0, len(images), 2):
+        row = []
+        # Column 1
+        img1 = images[i]
+        url1 = img1.get("download_url")
+        frame1_layout = [
+            [sg.Text(img1.get("name"), font=("Any 14"))],
+            [sg.Text(f"版本: {img1.get('version')} | 大小: {img1.get('size')}")],
+            [sg.Text(img1.get("description"), size=(35, 2))],
+            [sg.Button("在浏览器中打开", key=f"-OPEN_URL-{url1}", expand_x=True)]
+        ]
+        row.append(sg.Frame(title="", layout=frame1_layout, pad=(5,5), expand_x=True))
 
-    start_button = ft.ElevatedButton("开机")
-    shutdown_button = ft.ElevatedButton("安全关机", color="white", bgcolor="orange700")
-    stop_button = ft.ElevatedButton("强制关闭", color="white", bgcolor="red700")
+        # Column 2
+        if i + 1 < len(images):
+            img2 = images[i+1]
+            url2 = img2.get("download_url")
+            frame2_layout = [
+                [sg.Text(img2.get("name"), font=("Any 14"))],
+                [sg.Text(f"版本: {img2.get('version')} | 大小: {img2.get('size')}")],
+                [sg.Text(img2.get("description"), size=(35, 2))],
+                [sg.Button("在浏览器中打开", key=f"-OPEN_URL-{url2}", expand_x=True)]
+            ]
+            row.append(sg.Frame(title="", layout=frame2_layout, pad=(5,5), expand_x=True))
+        
+        layout.append(row)
+    return layout
 
-    details_view = ft.Column([
-        ft.Row([ft.Icon(ft.Icons.COMPUTER_OUTLINED), selected_vm_name]),
-        ft.Divider(height=10),
-        ft.Row([ft.Text("状态:", weight=ft.FontWeight.BOLD, width=60), detail_state]),
-        ft.Row([ft.Text("系统:", weight=ft.FontWeight.BOLD, width=60), detail_os]),
-        ft.Row([ft.Text("IP地址:", weight=ft.FontWeight.BOLD, width=60), detail_ip]),
-        ft.Row([ft.Text("CPU:", weight=ft.FontWeight.BOLD, width=60), detail_cpu]),
-        ft.Row([ft.Text("内存:", weight=ft.FontWeight.BOLD, width=60), detail_mem]),
+def create_vm_network_window(vm_name):
+    adapters = get_vm_network_adapters(vm_name)
+    switches = get_vswitches()
+    switch_names = [s['Name'] for s in switches]
+
+    if not adapters:
+        sg.popup_error(f"虚拟机 '{vm_name}' 没有找到网络适配器。")
+        return
+
+    # For simplicity, this UI handles the first network adapter.
+    adapter_name = adapters[0].get('Name')
+    current_switch = adapters[0].get('SwitchName') or "未连接"
+
+    layout = [
+        [sg.Text(f"正在为虚拟机 '{vm_name}' 配置网络")],
+        [sg.Text(f"网卡: {adapter_name}")],
+        [sg.Text(f"当前连接: {current_switch}")],
+        [sg.HSep()],
+        [sg.Text("选择要连接的交换机:"), sg.Combo(switch_names, key="-SWITCH_TO_CONNECT-", readonly=True)],
+        [sg.Button("连接"), sg.Button("断开连接"), sg.Button("关闭")]
+    ]
+
+    window = sg.Window("设置虚拟机网络", layout, modal=True)
+
+    while True:
+        event, values = window.read()
+        if event in (sg.WIN_CLOSED, "关闭"):
+            break
+        
+        if event == "连接":
+            selected_switch = values["-SWITCH_TO_CONNECT-"]
+            if not selected_switch:
+                sg.popup_error("请先选择一个交换机。")
+                continue
+            success, output = connect_vm_to_switch(vm_name, adapter_name, selected_switch)
+            if success:
+                sg.popup("连接成功！")
+                break
+            else:
+                sg.popup_error(f"连接失败: {output}")
+
+        if event == "断开连接":
+            if current_switch == "未连接":
+                sg.popup("该网卡尚未连接到任何交换机。")
+            else:
+                success, output = disconnect_vm_from_switch(vm_name, adapter_name)
+                if success:
+                    sg.popup("已断开连接。")
+                    break
+                else:
+                    sg.popup_error(f"操作失败: {output}")
+    window.close()
+
+def main():
+    sg.theme("SystemDefaultForReal")
+
+    # --- Layouts ---
+    nav_column = sg.Column([
+        [sg.Button("虚拟机", key="-NAV_VMS-", size=(12, 2))],
+        [sg.Button("网络设置", key="-NAV_NETWORK-", size=(12, 2))],
+        [sg.Button("创建虚拟机", key="-NAV_CREATE-", size=(12, 2))],
+        [sg.Button("系统镜像", key="-NAV_IMAGES-", size=(12, 2))],
+        [sg.Button("系统检查", key="-NAV_SYSTEM-", size=(12, 2))],
     ])
 
-    actions_view = ft.Row([start_button, shutdown_button, stop_button], spacing=10)
-    actions_panel = ft.Column(controls=[
-        ft.Card(content=ft.Container(details_view, padding=15)),
-        ft.Card(content=ft.Container(actions_view, padding=15))
-    ], visible=False, spacing=10)
+    system_check_layout = [
+        [sg.Text("系统状态检查", font=("Any 20"))],
+        [sg.Button("检查Hyper-V状态", key="-CHECK_HYPERV-")],
+        [sg.Text("点击上方按钮检查Hyper-V状态...", key="-STATUS_TEXT-", size=(60, 3))],
+        [sg.Button("一键安装 Hyper-V", key="-INSTALL_HYPERV-", visible=False, button_color=("white", "green"))],
+        [sg.Text("警告：安装过程需要管理员权限...", key="-INSTALL_WARN-", visible=False, text_color="orange")]
+    ]
 
-    def update_actions_panel(vm_details):
-        selected_vm_name.value = vm_details.get('name', '')
-        detail_state.value = vm_details.get('state', '')
-        detail_os.value = vm_details.get('os', '')
-        detail_ip.value = vm_details.get('ip', '')
-        detail_cpu.value = vm_details.get('cpu', '')
-        detail_mem.value = vm_details.get('mem', '')
-        is_running = (vm_details.get('state') == 'Running')
-        start_button.disabled = is_running
-        shutdown_button.disabled = not is_running
-        stop_button.disabled = not is_running
-        actions_panel.visible = True
-        page.update()
+    vm_list_layout = [
+        [sg.Text("虚拟机列表", font=("Any 20"))],
+        [sg.Button("刷新", key="-REFRESH_VMS-"), 
+         sg.Button("连接", key="-CONNECT_VM-", disabled=True),
+         sg.Button("启动", key="-START_VM-", disabled=True),
+         sg.Button("设置网络", key="-CONFIG_VM_NET-", disabled=True),
+         sg.Button("关机", key="-SHUTDOWN_VM-", disabled=True),
+         sg.Button("强制停止", key="-STOP_VM-", disabled=True),
+         sg.Button("删除", key="-DELETE_VM-", disabled=True, button_color=("white", "red"))],
+        [sg.Table(values=[], headings=["名称", "状态", "网络状态", "操作系统", "IP地址"], 
+                  key="-VM_TABLE-", auto_size_columns=False, col_widths=[20, 10, 10, 30, 20],
+                  justification='left', enable_events=True, num_rows=20)]
+    ]
 
-    def handle_vm_select(e):
-        if e.control.selected:
-            row = e.control
-            vm_details = {
-                "name": row.cells[0].content.value,
-                "state": row.cells[1].content.value,
-                "os": row.cells[2].content.value,
-                "ip": row.cells[3].content.value,
-                "cpu": row.cells[4].content.value,
-                "mem": row.cells[5].content.value,
-            }
-            update_actions_panel(vm_details)
-        else:
-            actions_panel.visible = False
-            page.update()
-    vm_table.on_select_changed = handle_vm_select
+    network_layout = [
+        [sg.Text("网络管理", font=("Any 20"))],
+        [sg.Button("刷新", key="-REFRESH_VSWITCHES-"),
+         sg.Button("创建交换机", key="-CREATE_VSWITCH-"),
+         sg.Button("删除所选交换机", key="-DELETE_VSWITCH-", disabled=True, button_color=("white", "red"))],
+        [sg.Table(values=[], headings=["名称", "类型", "详情", "备注"], 
+                  key="-VSWITCH_TABLE-", auto_size_columns=False, col_widths=[20, 10, 10, 35],
+                  justification='left', enable_events=True, num_rows=10)],
+        [sg.Frame("NAT 网络详情", [
+            [sg.Text("说明: NAT网络允许虚拟机通过主机访问外网，但外部无法直接访问虚拟机。\n步骤: 1. 创建一个'内部'交换机 -> 2. 选中它 -> 3. 点击下方'创建NAT网络'", font=("Any 9"), text_color="grey")],
+            [sg.Text("", key="-NAT_STATUS-")],
+            [sg.Button("创建NAT网络", key="-CREATE_NAT-"), sg.Button("设置网关IP", key="-SET_GW_IP-"), sg.Button("添加端口转发", key="-ADD_NAT_RULE-")],
+            [sg.Table(values=[], headings=["协议", "外部端口", "内部IP", "内部端口"], 
+                      key="-NAT_RULES_TABLE-", auto_size_columns=False, col_widths=[8, 10, 15, 10],
+                      justification='left', num_rows=5)],
+            [sg.Button("删除所选规则", key="-DELETE_NAT_RULE-")]
+        ], key="-NAT_PANEL-", visible=False)]
+    ]
 
-    def refresh_vms_table(e=None):
-        vm_table.rows.clear()
-        vm_data = get_vms_data()
-        if vm_data:
-            for vm in vm_data:
-                ip_addresses = vm.get('IPAddresses')
-                ip_text = ', '.join(ip_addresses) if ip_addresses else 'N/A'
-                vm_table.rows.append(ft.DataRow(cells=[
-                    ft.DataCell(ft.Text(vm.get('Name'))),
-                    ft.DataCell(ft.Text(vm.get('State'))),
-                    ft.DataCell(ft.Text(vm.get('GuestOS', 'N/A'))),
-                    ft.DataCell(ft.Text(ip_text)),
-                    ft.DataCell(ft.Text(f"{vm.get('CPUUsage', 0)}%")),
-                    ft.DataCell(ft.Text(f"{vm.get('MemoryAssigned', 0) // 1048576}"))
-                ]))
-        else:
-             vm_table.rows.append(ft.DataRow(cells=[ft.DataCell(ft.Text("Hyper-V未安装或无虚拟机", color="orange")), ft.DataCell(ft.Text("")), ft.DataCell(ft.Text("")), ft.DataCell(ft.Text("")), ft.DataCell(ft.Text("")), ft.DataCell(ft.Text(""))]))
-        page.update()
+    download_mgr = DownloadManager()
 
-    def perform_vm_action(action_func, vm_name):
-        success, _ = action_func(vm_name)
-        if success:
-            refresh_vms_table()
-            actions_panel.visible = False
-            page.update()
-    start_button.on_click = lambda e: perform_vm_action(start_vm, selected_vm_name.value)
-    shutdown_button.on_click = lambda e: perform_vm_action(shutdown_vm, selected_vm_name.value)
+    online_images_layout_content = build_online_images_layout()
 
-    view_vms = ft.Row([ft.Column([ft.ElevatedButton("刷新列表", on_click=refresh_vms_table), vm_table], scroll=ft.ScrollMode.ALWAYS, expand=True), ft.VerticalDivider(width=1), ft.Column([actions_panel], width=350)], expand=True)
+    online_images_tab_content = [
+        [sg.Text("提示: 点击按钮后将在外部浏览器打开下载页面，您可以使用第三方下载工具。", font=("Any 9"), text_color="grey")],
+        [sg.Column(online_images_layout_content, scrollable=True, vertical_scroll_only=True, expand_x=True, expand_y=True,  key='-IMAGE_LIST_COL-')]
+    ]
+
+    local_images_layout = [
+        [sg.Text("选择包含镜像文件的文件夹:")],
+        [sg.Input(key="-SCAN_PATH-", expand_x=True), sg.FolderBrowse("选择文件夹", target="-SCAN_PATH-")],
+        [sg.Button("开始扫描", key="-SCAN_LOCAL-", expand_x=True)],
+        [sg.HorizontalSeparator()],
+        [sg.Table(values=[], headings=["文件名", "路径", "大小"], 
+                  key="-LOCAL_IMG_TABLE-", auto_size_columns=False, col_widths=[20, 50, 15],
+                  justification='left', enable_events=True, num_rows=11, expand_x=True)],
+        [sg.Button("使用选中镜像创建虚拟机", key="-CREATE_FROM_LOCAL-", disabled=True, expand_x=True)]
+    ]
+
+    images_layout = [
+        [sg.TabGroup([
+            [sg.Tab("在线镜像市场", online_images_tab_content, expand_x=True, expand_y=True)],
+            [sg.Tab("本地镜像", local_images_layout, expand_x=True, expand_y=True)]
+        ], key="-IMAGE_TABS-", expand_x=True, expand_y=True)]
+    ]
+
+    # --- VM Wizard Layouts ---
+    step1_layout = sg.Column([
+        [sg.Text("步骤 1: 名称和位置", font=("Any 16"))],
+        [sg.Text("虚拟机名称", size=(15,1)), sg.Input(key="-VM_NAME-")],
+        [sg.Text("存储位置", size=(15,1)), sg.Input(os.path.join(os.path.expanduser("~"), "Hyper-V"), key="-VM_PATH-"), sg.FolderBrowse("浏览")],
+        [sg.Checkbox("启用安全启动", key="-SECURE_BOOT-", default=True), sg.Text("", tooltip="推荐用于 Windows 11 和其他现代操作系统。\n如果安装旧版系统（如 Windows 7），请取消勾选。")]
+    ], key="-WIZARD_STEP_1-")
+
+    step2_layout = sg.Column([
+        [sg.Text("步骤 2: 内存和处理器", font=("Any 16"))],
+        [sg.Text("内存 (MB)", size=(15,1)), sg.Slider(range=(1024, 16384), default_value=2048, resolution=1024, orientation='h', size=(30, 20), key="-VM_MEM-"), sg.Text("", tooltip="为虚拟机分配的内存大小。\n此向导目前不支持动态内存。")],
+        [sg.Text("CPU核心数", size=(15,1)), sg.Slider(range=(1, 8), default_value=2, orientation='h', size=(30, 20), key="-VM_CPU-"), sg.Text("", tooltip="为虚拟机分配的CPU逻辑核心数量。\n建议不要超过主机物理核心数的一半。")]
+    ], key="-WIZARD_STEP_2-", visible=False)
+
+    step3_layout = sg.Column([
+        [sg.Text("步骤 3: 硬盘", font=("Any 16"))],
+        [sg.Radio("创建新的虚拟硬盘", "DISK", key="-DISK_NEW-", default=True, enable_events=True), 
+         sg.Text("", tooltip="将为虚拟机创建一个全新的、空白的虚拟硬盘文件 (.vhdx)。\n您需要在虚拟机启动后手动安装操作系统。")],
+        [sg.Text("大小 (GB)", size=(15,1)), sg.Input("50", key="-DISK_SIZE-", size=(10,1))],
+        [sg.Radio("使用现有虚拟硬盘", "DISK", key="-DISK_EXIST-", enable_events=True), 
+         sg.Text("", tooltip="使用一个已经存在的虚拟硬盘文件 (.vhd 或 .vhdx)。\n这通常用于恢复虚拟机，或使用已预装好系统的硬盘文件。")],
+        [sg.Text("路径", size=(15,1)), sg.Input(key="-DISK_PATH-", disabled=True), sg.FileBrowse("浏览", file_types=(("Virtual Hard Disks", "*.vhdx *.vhd"),))]
+    ], key="-WIZARD_STEP_3-", visible=False)
+
+    step4_layout = sg.Column([
+        [sg.Text("步骤 4: 网络", font=("Any 16"))],
+        [sg.Text("虚拟交换机", size=(15,1)), sg.Combo([], key="-VM_VSWITCH-", readonly=True, size=(30,1)), sg.Text("", tooltip="为虚拟机选择一个网络连接。\nDefault Switch: 可访问外网的默认交换机。\nInternal/Private: 仅用于内部网络的交换机。")]
+    ], key="-WIZARD_STEP_4-", visible=False)
+
+    # --- Step 5 Layout with Tabs ---
+    install_from_file_layout = [
+        [sg.Text("选择一个本地的 .iso 镜像文件用于安装系统。")],
+        [sg.Text("镜像路径", size=(15,1)), sg.Input(key="-ISO_PATH-"), sg.FileBrowse("浏览", file_types=(("ISO Files", "*.iso"),))]
+    ]
+
+    install_from_download_layout = [
+        [sg.Text("从通过本软件下载的镜像列表中选择一个进行安装。")],
+        [sg.Table(values=[], headings=["文件名", "大小"], 
+                  key="-DOWNLOADED_IMG_TABLE-", auto_size_columns=False, col_widths=[40, 15],
+                  justification='left', enable_events=True, num_rows=8, expand_x=True)],
+    ]
+
+    step5_layout = sg.Column([
+        [sg.Text("步骤 5: 安装选项", font=("Any 16"))],
+        [sg.Text("说明: 如果您在步骤3中选择了'使用现有虚拟硬盘'，则无需在此选择安装介质。", font=("Any 9"), text_color="grey")],
+        [sg.TabGroup([
+            [sg.Tab("从本地文件", install_from_file_layout, key="-TAB_ISO_LOCAL-")],
+            [sg.Tab("从已下载镜像", install_from_download_layout, key="-TAB_ISO_DOWNLOADED-")]
+        ], key="-ISO_TAB_GROUP-")]
+    ], key="-WIZARD_STEP_5-", visible=False)
+
+    step6_layout = sg.Column([
+        [sg.Text("步骤 6: 摘要", font=("Any 16"))],
+        [sg.Text("请在创建前最后检查一遍您的配置：")],
+        [sg.Multiline(size=(60, 15), key="-VM_SUMMARY-", disabled=True)]
+    ], key="-WIZARD_STEP_6-", visible=False)
+
+    create_vm_layout = [
+        [sg.Text("创建虚拟机向导", font=("Any 20"))],
+        [sg.HorizontalSeparator()],
+        [step1_layout, step2_layout, step3_layout, step4_layout, step5_layout, step6_layout],
+        [sg.HorizontalSeparator()],
+        [sg.Button("上一步", key="-WIZARD_BACK-", disabled=True), sg.Button("下一步", key="-WIZARD_NEXT-")]
+    ]
+
+    content_column = sg.Column([
+        [
+            sg.Column(vm_list_layout, key="-VIEW_VMS-", visible=True, expand_x=True, expand_y=True),
+            sg.Column(network_layout, key="-VIEW_NETWORK-", visible=False, expand_x=True, expand_y=True),
+            sg.Column(create_vm_layout, key="-VIEW_CREATE-", visible=False, expand_x=True, expand_y=True),
+            sg.Column(images_layout, key="-VIEW_IMAGES-", visible=False, expand_x=True, expand_y=True),
+            sg.Column(system_check_layout, key="-VIEW_SYSTEM-", visible=False, expand_x=True, expand_y=True)
+        ]
+    ], expand_x=True, expand_y=True)
+
+    layout = [[nav_column, sg.VerticalSeparator(), content_column]]
+
+    window = sg.Window("Hyper-V 统一管理器", layout, resizable=True, finalize=True, size=(900, 650))
     
-    # --- System Check View ---
-    status_text = ft.Text("点击下方按钮检查Hyper-V状态...", size=16)
-    install_button = ft.ElevatedButton("一键安装 Hyper-V", icon=ft.Icons.ADD, on_click=lambda e: show_install_confirmation(), bgcolor="green", color="white")
-    warning_text = ft.Text("警告：安装过程需要管理员权限...", color="orange", weight=ft.FontWeight.BOLD)
-    confirm_install_button = ft.ElevatedButton("确认安装", on_click=lambda e: do_install(), bgcolor="red")
-    cancel_install_button = ft.TextButton("取消", on_click=lambda e: hide_install_confirmation())
-    confirmation_row = ft.Row([ft.Text("此操作将重启电脑，确定吗？"), confirm_install_button, cancel_install_button], visible=False)
+    # Initial Load
+    refresh_vm_table(window)
+    refresh_vswitch_table(window)
 
-    def show_install_confirmation():
-        install_button.visible = False
-        confirmation_row.visible = True
-        page.update()
+    # --- Event Loop ---
+    active_view = "-VIEW_VMS-"
+    selected_vm_name = None
+    selected_vswitch_name = None
+    selected_local_image = None
+    wizard_step = 1
 
-    def hide_install_confirmation():
-        install_button.visible = True
-        confirmation_row.visible = False
-        page.update()
+    while True:
+        event, values = window.read()
+        if event == sg.WIN_CLOSED:
+            break
 
-    def do_install():
-        hide_install_confirmation()
-        status_text.value = "正在安装Hyper-V..."
-        install_button.disabled = True
-        page.update()
-        success, output = install_hyperv()
-        status_text.value = "Hyper-V 安装命令已成功执行！请手动重启电脑。" if success else f"安装失败: {output}"
-        install_button.disabled = False
-        page.update()
+        # --- Navigation --- 
+        if event.startswith("-NAV_"):
+            nav_key = event.replace("-NAV_", "-VIEW_")
+            window[active_view].update(visible=False)
+            window[nav_key].update(visible=True)
+            active_view = nav_key
+            if active_view == "-VIEW_VMS-": refresh_vm_table(window)
+            if active_view == "-VIEW_NETWORK-": refresh_vswitch_table(window)
 
-    def check_status_click(e):
-        status_text.value = "正在检查..."
-        install_button.visible = False
-        warning_text.visible = False
-        hide_install_confirmation()
-        page.update()
-        status = check_hyperv_status()
-        if status == "Enabled":
-            status_text.value = "Hyper-V 已安装并启用。"
-            status_text.color = "green"
-        elif status in ["Disabled", "Absent"]:
-            status_text.value = "Hyper-V 未安装或未启用。"
-            status_text.color = "orange"
-            install_button.visible = True
-            warning_text.visible = True
-        else:
-            status_text.value = status
-            status_text.color = "red"
-        page.update()
+        # --- VM List Events ---
+        if event == "-REFRESH_VMS-":
+            refresh_vm_table(window)
+            selected_vm_name = None
 
-    install_button.visible = False
-    warning_text.visible = False
-    view_system = ft.Column(controls=[
-        ft.Text("系统状态检查", size=30),
-        ft.Row([ft.ElevatedButton("检查Hyper-V状态", on_click=check_status_click, icon=ft.Icons.SYNC), create_help_button("Hyper-V状态检查", "检查当前系统是否已安装并启用了Hyper-V功能。 ")]),
-        status_text,
-        warning_text,
-        ft.Row([install_button, create_help_button("一键安装 Hyper-V", "点击此按钮将自动安装Hyper-V功能。 ")]),
-        confirmation_row,
-    ], spacing=20)
+        if event == "-VM_TABLE-":
+            selected_indices = values["-VM_TABLE-"]
+            if selected_indices:
+                # Access the table's data directly using .Values property
+                table_current_data = window["-VM_TABLE-"].Values
+                selected_row_index = selected_indices[0]
+                # Ensure the selected index is valid for the current data
+                if selected_row_index < len(table_current_data):
+                    selected_vm_name = table_current_data[selected_row_index][0]
+                    window["-CONNECT_VM-"].update(disabled=False)
+                    window["-START_VM-"].update(disabled=False)
+                    window["-CONFIG_VM_NET-"].update(disabled=False)
+                    window["-SHUTDOWN_VM-"].update(disabled=False)
+                    window["-STOP_VM-"].update(disabled=False)
+                    window["-DELETE_VM-"].update(disabled=False)
+                else: # Should not happen if selected_indices is not empty, but for safety
+                    selected_vm_name = None
+            else:
+                selected_vm_name = None
 
-    # --- Network View ---
-    vswitch_table = ft.DataTable(columns=[ft.DataColumn(ft.Text("名称")), ft.DataColumn(ft.Text("类型")), ft.DataColumn(ft.Text("备注"))], rows=[])
-    delete_button = ft.ElevatedButton("删除所选", icon=ft.Icons.DELETE, color="white", bgcolor="red700", disabled=True)
-    nat_rules_table = ft.DataTable(columns=[ft.DataColumn(ft.Text("协议")), ft.DataColumn(ft.Text("外部端口")), ft.DataColumn(ft.Text("内部IP")), ft.DataColumn(ft.Text("内部端口")), ft.DataColumn(ft.Text("操作"))], rows=[])
-    add_nat_rule_button = ft.ElevatedButton("添加规则", icon=ft.Icons.ADD)
-    nat_rules_panel = ft.Column([ft.Text("端口映射规则", size=20), ft.Row([add_nat_rule_button]), nat_rules_table], visible=False)
-    new_nat_external_port = ft.TextField(label="外部端口")
-    new_nat_internal_ip = ft.TextField(label="内部IP地址")
-    new_nat_internal_port = ft.TextField(label="内部端口")
-    new_nat_protocol = ft.Dropdown(label="协议", options=[ft.dropdown.Option("TCP"), ft.dropdown.Option("UDP")], value="TCP")
-    current_selected_nat_switch_name = ""
+        def handle_vm_action(action, vm_name):
+            if not vm_name: return sg.popup_error("请先在表格中选择一个虚拟机！")
+            if action == "delete" and sg.popup_ok_cancel(f"您确定要永久删除虚拟机 '{vm_name}' 吗？", title="确认删除") != "OK": return
+            
+            actions = {"start": start_vm, "shutdown": shutdown_vm, "stop": stop_vm, "delete": delete_vm}
+            success, output = actions[action](vm_name)
+            if success: sg.popup_quick_message(f"'{vm_name}' 的 '{action}' 命令已发送。", auto_close_duration=3)
+            else: sg.popup_error(f"操作失败: {output}")
+            refresh_vm_table(window)
 
-    def refresh_nat_rules_table():
-        nat_rules_table.rows.clear()
-        if current_selected_nat_switch_name:
-            rules = get_nat_rules(current_selected_nat_switch_name)
-            if rules:
-                for rule in rules:
-                    nat_rules_table.rows.append(ft.DataRow(cells=[
-                        ft.DataCell(ft.Text(rule.get('Protocol', 'N/A'))),
-                        ft.DataCell(ft.Text(str(rule.get('RemotePort', 'N/A')))),
-                        ft.DataCell(ft.Text(rule.get('InternalIPAddress', 'N/A'))),
-                        ft.DataCell(ft.Text(str(rule.get('InternalPort', 'N/A')))),
-                        ft.DataCell(ft.IconButton(icon=ft.Icons.DELETE, on_click=lambda e, r=rule: delete_nat_rule_click(r))),
-                    ]))
-        page.update()
+        if event == "-START_VM-": handle_vm_action("start", selected_vm_name)
+        if event == "-SHUTDOWN_VM-": handle_vm_action("shutdown", selected_vm_name)
+        if event == "-STOP_VM-": handle_vm_action("stop", selected_vm_name)
+        if event == "-DELETE_VM-": handle_vm_action("delete", selected_vm_name)
 
-    def delete_nat_rule_click(rule):
-        pass
+        if event == "-CONNECT_VM-":
+            if selected_vm_name:
+                success, output = connect_vm(selected_vm_name)
+                if not success:
+                    sg.popup_error(f"无法连接到虚拟机: {output}")
+            else:
+                sg.popup_error("请先在表格中选择一个虚拟机！")
 
-    def close_add_nat_rule_dialog(e):
-        page.dialog.open = False
-        page.update()
+        if event == "-CONFIG_VM_NET-":
+            if selected_vm_name:
+                create_vm_network_window(selected_vm_name)
+                refresh_vm_table(window) # Refresh to show updated IP/network info
+            else:
+                sg.popup_error("请先在表格中选择一个虚拟机！")
 
-    def add_nat_rule_submit(e):
-        pass
+        # --- Network Events ---
+        if event == "-REFRESH_VSWITCHES-":
+            refresh_vswitch_table(window)
+            selected_vswitch_name = None
 
-    add_nat_rule_dialog = ft.AlertDialog(title=ft.Text("添加端口映射规则"), content=ft.Column([new_nat_external_port, new_nat_internal_ip, new_nat_internal_port, new_nat_protocol]), actions=[ft.TextButton("取消", on_click=close_add_nat_rule_dialog), ft.ElevatedButton("添加", on_click=add_nat_rule_submit)])
+        if event == "-VSWITCH_TABLE-":
+            selected_indices = values["-VSWITCH_TABLE-"]
+            if selected_indices:
+                table_data = window["-VSWITCH_TABLE-"].Values
+                selected_row_index = selected_indices[0]
+                if selected_row_index < len(table_data):
+                    selected_vswitch_name, switch_type, nat_status_text, _ = table_data[selected_row_index]
+                    window["-DELETE_VSWITCH-"].update(disabled=False)
 
-    def open_add_nat_rule_dialog(e):
-        page.dialog = add_nat_rule_dialog
-        page.dialog.open = True
-        page.update()
-    add_nat_rule_button.on_click = open_add_nat_rule_dialog
+                    # NAT Panel Logic
+                    if switch_type == 'Internal':
+                        window["-NAT_PANEL-"].update(visible=True)
+                        is_nat_enabled = "NAT: 已启用" in nat_status_text
+                        
+                        nat_rules_data = []
+                        if is_nat_enabled:
+                            nat_rules = get_nat_rules(selected_vswitch_name)
+                            nat_rules_data = [[r.get('Protocol', 'N/A'), r.get('ExternalPort', 'N/A'), r.get('InternalIPAddress', 'N/A'), r.get('InternalPort', 'N/A')] for r in nat_rules]
+                        
+                        window["-NAT_RULES_TABLE-"].update(values=nat_rules_data)
+                        window["-CREATE_NAT-"].update(disabled=is_nat_enabled)
+                        window["-ADD_NAT_RULE-"].update(disabled=not is_nat_enabled)
+                        window["-DELETE_NAT_RULE-"].update(disabled=not is_nat_enabled)
+                        window["-NAT_STATUS-"].update(f"交换机 '{selected_vswitch_name}' 的NAT状态: {'已启用' if is_nat_enabled else '未启用'}")
+                    else:
+                        window["-NAT_PANEL-"].update(visible=False)
+                else:
+                    selected_vswitch_name = None
+                    window["-NAT_PANEL-"].update(visible=False)
+            else:
+                selected_vswitch_name = None
+                window["-NAT_PANEL-"].update(visible=False)
 
-    def refresh_vswitches_table(e=None):
-        vswitch_table.rows.clear()
-        switches = get_vswitches()
-        if switches:
-            for switch in switches:
-                vswitch_table.rows.append(ft.DataRow(cells=[
-                    ft.DataCell(ft.Text(switch.get('Name'))),
-                    ft.DataCell(ft.Text(switch.get('SwitchType'))),
-                    ft.DataCell(ft.Text(switch.get('Notes'))),
-                ]))
-        delete_button.disabled = True
-        nat_rules_panel.visible = False
-        page.update()
+        if event == "-DELETE_VSWITCH-":
+            if selected_vswitch_name == "Default Switch":
+                sg.popup_error("不能删除系统默认的交换机 'Default Switch'。")
+            elif selected_vswitch_name and sg.popup_ok_cancel(f"确定要删除交换机 '{selected_vswitch_name}' 吗？", title="确认删除") == "OK":
+                success, output = remove_vswitch(selected_vswitch_name)
+                if success: sg.popup_quick_message("交换机已删除。")
+                else: sg.popup_error(f"删除失败: {output}")
+                refresh_vswitch_table(window)
 
-    def delete_vswitch_click(e):
-        pass
-    delete_button.on_click = delete_vswitch_click
+        if event == "-CREATE_VSWITCH-":
+            create_vswitch_window()
+            refresh_vswitch_table(window)
 
-    def handle_vswitch_select(e):
-        selected_row = next((r for r in vswitch_table.rows if r.selected), None)
-        delete_button.disabled = not selected_row
-        if selected_row and selected_row.cells[1].content.value == "NAT":
-            global current_selected_nat_switch_name
-            current_selected_nat_switch_name = selected_row.cells[0].content.value
-            refresh_nat_rules_table()
-            nat_rules_panel.visible = True
-        else:
-            nat_rules_panel.visible = False
-        page.update()
-    vswitch_table.on_select_changed = handle_vswitch_select
+        # --- Image Events ---
+        if isinstance(event, str) and event.startswith("-OPEN_URL-"):
+            url = event.replace("-OPEN_URL-", "")
+            try:
+                webbrowser.open(url, new=2)
+            except Exception as e:
+                sg.popup_error(f"无法打开链接: {e}")
 
-    view_network = ft.Row([ft.Column([ft.Row([ft.Text("虚拟交换机管理", size=30), ft.ElevatedButton("刷新", on_click=refresh_vswitches_table), ft.ElevatedButton("创建", on_click=lambda e: open_create_vswitch_dialog()), delete_button]), vswitch_table], expand=True), ft.VerticalDivider(), ft.Column([nat_rules_panel], expand=True)])
-    
-    # --- Create VM View ---
-    current_step = 0
-    
-    vm_name_field = ft.TextField(label="虚拟机名称", expand=True)
-    vm_location_field = ft.TextField(label="虚拟机存储位置", expand=True)
-    vm_location_picker = ft.FilePicker(on_result=lambda e: setattr(vm_location_field, "value", e.path) if e.path else None)
-    page.overlay.append(vm_location_picker)
-    step1_content = ft.Column([
-        ft.Row([vm_name_field, create_help_button("虚拟机名称", "为您的虚拟机指定一个唯一的名称。 ")]),
-        ft.Row([vm_location_field, ft.ElevatedButton("浏览", on_click=lambda e: vm_location_picker.get_directory_path())])
-    ])
+        if event == "-SCAN_LOCAL-":
+            scan_path = values["-SCAN_PATH-"]
+            if scan_path and os.path.isdir(scan_path):
+                window["-SCAN_LOCAL-"].update(disabled=True, text="扫描中...")
+                window.refresh()
+                images = get_local_images([scan_path])
+                image_data = [[img.get('name'), img.get('path'), img.get('size')] for img in images]
+                window["-LOCAL_IMG_TABLE-"].update(values=image_data)
+                window["-SCAN_LOCAL-"].update(disabled=False, text="开始扫描")
+            else:
+                sg.popup_error("请输入一个有效的文件夹路径进行扫描。")
 
-    vm_memory_slider = ft.Slider(min=512, max=16384, divisions=31, value=2048, label="内存: {value} MB", expand=True)
-    vm_cpu_slider = ft.Slider(min=1, max=8, divisions=7, value=2, label="CPU核心数: {value}", expand=True)
-    step2_content = ft.Column([
-        ft.Row([vm_memory_slider, create_help_button("内存", "分配给虚拟机的内存大小。 ")]),
-        ft.Row([vm_cpu_slider, create_help_button("CPU核心数", "分配给虚拟机的CPU核心数量。 ")])
-    ])
+        if event == "-LOCAL_IMG_TABLE-":
+            if values["-LOCAL_IMG_TABLE-"]:
+                window["-CREATE_FROM_LOCAL-"].update(disabled=False)
+            else:
+                window["-CREATE_FROM_LOCAL-"].update(disabled=True)
 
-    vm_disk_option = ft.RadioGroup(content=ft.Row([ft.Radio(value="new", label="创建新虚拟硬盘"), ft.Radio(value="existing", label="使用现有虚拟硬盘")]), value="new")
-    vm_new_disk_size_field = ft.TextField(label="新硬盘大小 (GB)", value="60")
-    vm_existing_disk_path_field = ft.TextField(label="现有硬盘路径", expand=True)
-    vm_existing_disk_picker = ft.FilePicker(on_result=lambda e: setattr(vm_existing_disk_path_field, "value", e.path) if e.path else None)
-    page.overlay.append(vm_existing_disk_picker)
-    step3_content = ft.Column([
-        ft.Row([vm_disk_option, create_help_button("硬盘选项", "选择创建新硬盘或使用现有硬盘。 ")]),
-        ft.Row([vm_new_disk_size_field]),
-        ft.Row([vm_existing_disk_path_field, ft.ElevatedButton("浏览", on_click=lambda e: vm_existing_disk_picker.pick_files(allowed_extensions=["vhdx", "vhd"]))])
-    ])
+        if event == "-CREATE_FROM_LOCAL-":
+            if values["-LOCAL_IMG_TABLE-"]:
+                selected_row_index = values["-LOCAL_IMG_TABLE-"][0]
+                selected_local_image = window["-LOCAL_IMG_TABLE-"].Values[selected_row_index]
+                image_path = selected_local_image[1]
+                
+                # Navigate to Create VM view
+                window[active_view].update(visible=False)
+                active_view = "-VIEW_CREATE-"
+                window[active_view].update(visible=True)
+                
+                # Pre-fill the path
+                if image_path.lower().endswith(".iso"):
+                    # Go to step 5 and pre-fill
+                    window["-WIZARD_STEP_1-"].update(visible=False)
+                    window["-WIZARD_STEP_5-"].update(visible=True)
+                    window["-ISO_TAB_GROUP-"].Widget.select(0) # Select the first tab (local)
+                    window["-ISO_PATH-"].update(image_path)
+                    wizard_step = 5
+                    window["-WIZARD_BACK-"].update(disabled=False)
+                    window["-WIZARD_NEXT-"].update("下一步")
+                else: # VHDX/VHD
+                    # Go to step 3 and pre-fill
+                    window["-WIZARD_STEP_1-"].update(visible=False)
+                    window["-WIZARD_STEP_3-"].update(visible=True)
+                    window["-DISK_EXIST-"].update(value=True)
+                    window["-DISK_NEW-"].update(value=False)
+                    window["-DISK_SIZE-"].update(disabled=True)
+                    window["-DISK_PATH-"].update(image_path, disabled=False)
+                    wizard_step = 3
+                    window["-WIZARD_BACK-"].update(disabled=False)
+                    window["-WIZARD_NEXT-"].update("下一步")
+                sg.popup_quick_message(f"已跳转到创建向导并预填好镜像路径: {os.path.basename(image_path)}")
 
-    vm_network_dropdown = ft.Dropdown(label="选择虚拟交换机", options=[ft.dropdown.Option(s.get("Name")) for s in get_vswitches() if s.get("SwitchType") != "Private"], expand=True)
-    step4_content = ft.Column([ft.Row([vm_network_dropdown, create_help_button("选择虚拟交换机", "选择一个虚拟交换机连接虚拟机。 ")])])
+        if event == "-OPEN_DOWNLOAD_FOLDER-":
+            download_path = download_mgr.downloads_dir
+            try:
+                os.startfile(download_path)
+            except Exception as e:
+                sg.popup_error(f"无法打开文件夹: {download_path}\n错误: {e}")
 
-    vm_install_media_option = ft.RadioGroup(content=ft.Row([ft.Radio(value="local_iso", label="本地ISO文件"), ft.Radio(value="downloaded_image", label="已下载镜像")]), value="local_iso")
-    vm_local_iso_path_field = ft.TextField(label="本地ISO路径", expand=True)
-    vm_local_iso_picker = ft.FilePicker(on_result=lambda e: setattr(vm_local_iso_path_field, "value", e.path) if e.path else None)
-    page.overlay.append(vm_local_iso_picker)
-    vm_downloaded_image_dropdown = ft.Dropdown(label="选择已下载镜像", options=[ft.dropdown.Option(d["filename"]) for d in dm.get_all_downloads().values() if d["status"] == "completed"], expand=True)
-    step5_content = ft.Column([
-        ft.Row([vm_install_media_option, create_help_button("安装介质", "选择用于安装操作系统的介质。 ")]),
-        ft.Row([vm_local_iso_path_field, ft.ElevatedButton("浏览", on_click=lambda e: vm_local_iso_picker.pick_files(allowed_extensions=["iso"]))]),
-        ft.Row([vm_downloaded_image_dropdown])
-    ])
+        if event == "-CREATE_NAT-":
+            if selected_vswitch_name:
+                subnet = sg.popup_get_text("请输入NAT网络的子网地址 (例如: 192.168.100.0/24):", "创建NAT网络")
+                if subnet:
+                    gateway = sg.popup_get_text(f"请输入 {selected_vswitch_name} 交换机的网关IP地址 (例如: 192.168.100.1):", "设置网关")
+                    if gateway:
+                        # Extract prefix from subnet, e.g., 24 from 192.168.100.0/24
+                        try:
+                            prefix = subnet.split('/')[1]
+                            # Create NAT Network
+                            success, output = create_nat_network(selected_vswitch_name, subnet)
+                            if success:
+                                # Set IP on the vSwitch to act as gateway
+                                success_ip, output_ip = set_vswitch_ip(selected_vswitch_name, gateway, prefix)
+                                if success_ip:
+                                    sg.popup_quick_message("NAT网络创建并配置成功！")
+                                else:
+                                    if "already exists" in output_ip:
+                                        sg.popup_error(f"设置网关IP失败: IP地址 {gateway} 已被占用或已配置。", title="IP冲突")
+                                    else:
+                                        sg.popup_error(f"设置网关IP失败: {output_ip}")
+                            else:
+                                if "重名" in output or "duplicate" in output.lower():
+                                    error_message = f"""创建NAT网络失败: 名称 '{selected_vswitch_name}' 已被系统其他网络占用。
 
-    summary_text = ft.Text("")
-    step6_content = ft.Column([summary_text])
+请为此虚拟交换机更换一个名称后重试。"""
+                                    sg.popup_error(error_message, title="名称冲突")
+                                else:
+                                    sg.popup_error(f"创建NAT网络失败: {output}")
+                            
+                            refresh_vswitch_table(window)
+                            # Manually trigger table event to refresh NAT panel
+                            window.write_event_value("-VSWITCH_TABLE-", window["-VSWITCH_TABLE-"].SelectedRows)
 
-    all_steps = [step1_content, step2_content, step3_content, step4_content, step5_content, step6_content]
-    for i, step in enumerate(all_steps):
-        step.visible = (i == 0)
+                        except IndexError:
+                            sg.popup_error("子网地址格式不正确，请确保包含前缀长度，例如: /24")
+        
+        if event == "-ADD_NAT_RULE-":
+            if selected_vswitch_name:
+                if create_add_nat_rule_window(selected_vswitch_name):
+                    # Refresh NAT panel by re-selecting the row
+                    window.write_event_value("-VSWITCH_TABLE-", window["-VSWITCH_TABLE-"].SelectedRows)
 
-    def update_summary():
-        summary = f"虚拟机名称: {vm_name_field.value}\n"
-        summary += f"存储位置: {vm_location_field.value}\n"
-        summary += f"内存: {vm_memory_slider.value} MB\n"
-        summary += f"CPU核心数: {vm_cpu_slider.value}\n"
-        summary += f"硬盘选项: {vm_disk_option.value}\n"
-        if vm_disk_option.value == "new":
-            summary += f"  新硬盘大小: {vm_new_disk_size_field.value} GB\n"
-        else:
-            summary += f"  现有硬盘路径: {vm_existing_disk_path_field.value}\n"
-        summary += f"网络: {vm_network_dropdown.value}\n"
-        summary += f"安装介质: {vm_install_media_option.value}\n"
-        if vm_install_media_option.value == "local_iso":
-            summary += f"  本地ISO: {vm_local_iso_path_field.value}\n"
-        else:
-            summary += f"  已下载镜像: {vm_downloaded_image_dropdown.value}\n"
-        summary_text.value = summary
+        if event == "-DELETE_NAT_RULE-":
+            if selected_vswitch_name and values["-NAT_RULES_TABLE-"]:
+                selected_rule_index = values["-NAT_RULES_TABLE-"][0]
+                rules_data = window["-NAT_RULES_TABLE-"].Values
+                if selected_rule_index < len(rules_data):
+                    proto, ext_port, _, _ = rules_data[selected_rule_index]
+                    rule_to_delete = {"Protocol": proto, "RemotePort": ext_port}
+                    
+                    if sg.popup_ok_cancel(f"确定要删除端口 {ext_port} ({proto}) 的转发规则吗？", title="确认删除") == "OK":
+                        success, output = remove_nat_rule(selected_vswitch_name, rule_to_delete)
+                        if success:
+                            sg.popup_quick_message("规则已删除。")
+                        else:
+                            sg.popup_error(f"删除失败: {output}")
+                        # Refresh NAT panel by re-selecting the row
+                        window.write_event_value("-VSWITCH_TABLE-", window["-VSWITCH_TABLE-"].SelectedRows)
 
-    def go_to_step(step_index):
-        nonlocal current_step
-        current_step = step_index
-        for i, step in enumerate(all_steps):
-            step.visible = (i == current_step)
-        back_button.disabled = (current_step == 0)
-        if current_step == len(all_steps) - 1:
-            update_summary()
-            next_button.text = "创建虚拟机"
-            next_button.icon = ft.Icons.ADD_CIRCLE
-            next_button.on_click = create_vm_submit
-        else:
-            next_button.text = "下一步"
-            next_button.icon = None
-            next_button.on_click = lambda e: go_to_step(current_step + 1)
-        page.update()
+        if event == "-SET_GW_IP-":
+            if selected_vswitch_name:
+                ip_address_prefix = sg.popup_get_text("请输入网关的IP地址和前缀长度 (例如: 192.168.100.1/24):", "设置网关IP")
+                if ip_address_prefix:
+                    try:
+                        ip_address, prefix = ip_address_prefix.split('/')
+                        success, output = set_vswitch_ip(selected_vswitch_name, ip_address, prefix)
+                        if success:
+                            sg.popup_quick_message("网关IP设置成功！")
+                        else:
+                            if "already exists" in output:
+                                sg.popup_error(f"设置失败: IP地址 {ip_address} 已被占用或已配置。", title="IP冲突")
+                            else:
+                                sg.popup_error(f"设置失败: {output}")
+                    except ValueError:
+                        sg.popup_error("格式不正确。请确保使用 IP/前缀 的格式, 例如: 192.168.100.1/24")
+            else:
+                sg.popup_error("请先选择一个内部交换机。")
 
-    back_button = ft.ElevatedButton("上一步", on_click=lambda e: go_to_step(current_step - 1), disabled=True)
-    next_button = ft.ElevatedButton("下一步", on_click=lambda e: go_to_step(current_step + 1))
+        # --- Image Events ---
+        if event == "-BROWSE_LOCAL_IMG-":
+            path = values["-LOCAL_IMG_PATH-"]
+            if path:
+                images = get_local_images([path])
+                image_data = [[img.get('name'), img.get('size'), img.get('path')] for img in images]
+                window["-LOCAL_IMG_TABLE-"].update(values=image_data)
 
-    view_create = ft.Column([
-        ft.Text("创建虚拟机向导", size=30),
-        ft.Column(all_steps, expand=True, scroll=ft.ScrollMode.ADAPTIVE),
-        ft.Row([back_button, next_button], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-    ])
+        # --- System Check Events ---
+        if event == "-CHECK_HYPERV-":
+            window["-STATUS_TEXT-"].update("正在检查...")
+            window.refresh()
+            status = check_hyperv_status()
+            color = "red"
+            if "permissions" in status or "access is denied" in status: status_text = "权限不足，无法检查Hyper-V状态。"
+            elif status == "Enabled": status_text, color = "Hyper-V 已安装并启用。", "green"
+            elif status in ["Disabled", "Absent"]: 
+                status_text, color = "Hyper-V 未安装或未启用。", "orange"
+                window["-INSTALL_HYPERV-"].update(visible=True)
+                window["-INSTALL_WARN-"].update(visible=True)
+            else: status_text = status
+            window["-STATUS_TEXT-"].update(status_text, text_color=color)
 
-    # --- Image View ---
-    local_image_paths_list = ft.Column([])
-    local_images_table = ft.DataTable(
-        columns=[
-            ft.DataColumn(ft.Text("名称")),
-            ft.DataColumn(ft.Text("大小")),
-            ft.DataColumn(ft.Text("路径")),
-        ],
-        rows=[]
-    )
+        if event == "-INSTALL_HYPERV-":
+            if sg.popup_ok_cancel("此操作将安装Hyper-V功能并可能需要重启电脑，确定吗？", title="确认安装") == "OK":
+                window["-INSTALL_HYPERV-"].update(disabled=True)
+                success, output = install_hyperv()
+                if success: sg.popup("Hyper-V 安装命令已成功执行！请手动重启电脑以完成安装。")
+                else: sg.popup_error(f"安装失败: {output}")
+                window["-INSTALL_HYPERV-"].update(disabled=False)
 
-    file_picker = ft.FilePicker()
-    page.overlay.append(file_picker)
+        # --- VM Wizard Events ---
+        if event == "-WIZARD_NEXT-":
+            if wizard_step < 6:
+                window[f"-WIZARD_STEP_{wizard_step}-"].update(visible=False)
+                wizard_step += 1
+                window[f"-WIZARD_STEP_{wizard_step}-"].update(visible=True)
+                window["-WIZARD_BACK-"].update(disabled=False)
+                if wizard_step == 4: # Network
+                    switches = [s['Name'] for s in get_vswitches() if s.get("SwitchType") != "Private"]
+                    window["-VM_VSWITCH-"].update(values=switches, value=switches[0] if switches else "")
+                if wizard_step == 5: # Installation Options
+                    # Populate downloaded images table
+                    completed_downloads = []
+                    all_downloads = download_mgr.get_all_downloads()
+                    for url, data in all_downloads.items():
+                        if data.get('status') == 'completed':
+                            filepath = os.path.join(download_mgr.downloads_dir, data['filename'])
+                            try:
+                                size = os.path.getsize(filepath)
+                                size_str = f"{size / _1GB:.2f} GB" if size > _1GB else f"{size / _1MB:.2f} MB"
+                                completed_downloads.append([data['filename'], size_str])
+                            except FileNotFoundError:
+                                continue # Skip if file is missing
+                    window["-DOWNLOADED_IMG_TABLE-"].update(values=completed_downloads)
 
-    def refresh_local_images_list():
-        local_image_paths_list.controls.clear()
-        for path in config["local_image_paths"]:
-            local_image_paths_list.controls.append(
-                ft.Row([
-                    ft.Text(path, expand=True),
-                    ft.IconButton(icon=ft.Icons.DELETE, on_click=lambda e, p=path: remove_local_image_path(p))
-                ])
-            )
-        refresh_local_images_table()
-        page.update()
+                if wizard_step == 6: # Summary
+                    # Determine which ISO path to use
+                    iso_path = ""
+                    if values["-ISO_TAB_GROUP-"] == "-TAB_ISO_LOCAL-":
+                        iso_path = values["-ISO_PATH-"]
+                    elif values["-ISO_TAB_GROUP-"] == "-TAB_ISO_DOWNLOADED-":
+                        selected_indices = values["-DOWNLOADED_IMG_TABLE-"]
+                        if selected_indices:
+                            selected_row = window["-DOWNLOADED_IMG_TABLE-"].Values[selected_indices[0]]
+                            filename = selected_row[0]
+                            iso_path = os.path.join(download_mgr.downloads_dir, filename)
 
-    def add_local_image_path(e):
-        if file_picker.result and file_picker.result.path:
-            new_path = file_picker.result.path
-            if new_path not in config["local_image_paths"]:
-                config["local_image_paths"].append(new_path)
-                save_config(config)
-                refresh_local_images_list()
-        page.update()
+                    summary = f"虚拟机名称: {values['-VM_NAME-']}\n"
+                    summary += f"存储位置: {values['-VM_PATH-']}\n"
+                    summary += f"内存: {int(values['-VM_MEM-'])} MB\n"
+                    summary += f"CPU核心数: {int(values['-VM_CPU-'])}\n"
+                    if values['-DISK_NEW-']:
+                        summary += f"硬盘: 创建新硬盘 ({values['-DISK_SIZE-']} GB)\n"
+                    else:
+                        summary += f"硬盘: 使用现有硬盘 ({values['-DISK_PATH-']})\n"
+                    summary += f"网络: {values['-VM_VSWITCH-']}\n"
+                    summary += f"安装介质: {os.path.basename(iso_path) if iso_path else '无'}\n"
+                    window["-VM_SUMMARY-"].update(summary)
+                    window["-WIZARD_NEXT-"].update("创建虚拟机")
+            else: # Create VM
+                # Validation
+                if not all([values["-VM_NAME-"], values["-VM_PATH-"], values["-VM_VSWITCH-"]]):
+                    sg.popup_error("请填写所有必填字段！")
+                else:
+                    # Determine ISO path again before creation
+                    iso_path = None
+                    # Check if the user wants to install from an image
+                    if values["-DISK_NEW-"]: # Only consider ISO if creating a new disk
+                        if values["-ISO_TAB_GROUP-"] == "-TAB_ISO_LOCAL-":
+                            iso_path = values["-ISO_PATH-"]
+                        elif values["-ISO_TAB_GROUP-"] == "-TAB_ISO_DOWNLOADED-":
+                            selected_indices = values["-DOWNLOADED_IMG_TABLE-"]
+                            if selected_indices:
+                                selected_row = window["-DOWNLOADED_IMG_TABLE-"].Values[selected_indices[0]]
+                                filename = selected_row[0]
+                                iso_path = os.path.join(download_mgr.downloads_dir, filename)
 
-    def pick_folder_dialog(e):
-        file_picker.on_result = add_local_image_path
-        file_picker.get_directory_path()
-
-    def remove_local_image_path(path_to_remove):
-        config["local_image_paths"].remove(path_to_remove)
-        save_config(config)
-        refresh_local_images_list()
-
-    def refresh_local_images_table():
-        local_images_table.rows.clear()
-        images = get_local_images(config["local_image_paths"])
-        if images:
-            for img in images:
-                local_images_table.rows.append(
-                    ft.DataRow(cells=[
-                        ft.DataCell(ft.Text(img.get("name") )),
-                        ft.DataCell(ft.Text(img.get("size") )),
-                        ft.DataCell(ft.Text(img.get("path") )),
-                    ])
-                )
-        else:
-            local_images_table.rows.append(ft.DataRow(cells=[
-                ft.DataCell(ft.Text("未找到本地镜像", color="orange")), ft.DataCell(ft.Text("")), ft.DataCell(ft.Text(""))
-            ]))
-        page.update()
-
-    def build_local_images_view():
-        return ft.Column([
-            ft.Row([
-                ft.Text("本地镜像目录", size=16, weight=ft.FontWeight.BOLD),
-                ft.ElevatedButton("添加目录", on_click=pick_folder_dialog, icon=ft.Icons.FOLDER_OPEN),
-                ft.ElevatedButton("刷新镜像", on_click=lambda e: refresh_local_images_table(), icon=ft.Icons.REFRESH),
-            ]),
-            local_image_paths_list,
-            ft.Divider(),
-            ft.Text("本地镜像列表", size=16, weight=ft.FontWeight.BOLD),
-            local_images_table,
-        ], scroll=ft.ScrollMode.ALWAYS, expand=True)
-
-    def build_online_images_view():
-        online_images = get_online_images()
-        image_cards = []
-        for img in online_images:
-            def start_download_click(e, url, filename):
-                download_id = dm.start_download(url, filename)
-                download_tasks_list.controls.append(
-                    ft.Card(
-                        data=download_id,
-                        content=ft.Container(
-                            padding=15,
-                            content=ft.Column([
-                                ft.Row([
-                                    ft.Text(filename, size=16, weight=ft.FontWeight.BOLD, expand=True),
-                                    ft.Text("等待中", color="grey")
-                                ]),
-                                ft.Row([
-                                    ft.ProgressBar(width=200, value=0),
-                                    ft.Text("0%")
-                                ]),
-                                ft.Row([
-                                    ft.ElevatedButton("暂停", on_click=lambda e, did=download_id: dm.pause_download(did)),
-                                    ft.ElevatedButton("继续", on_click=lambda e, did=download_id: dm.resume_download(did)),
-                                    ft.ElevatedButton("取消", on_click=lambda e, did=download_id: dm.cancel_download(did)),
-                                ])
-                            ])
-                        )
+                    success, output = create_new_vm(
+                        name=values["-VM_NAME-"],
+                        memory_mb=int(values["-VM_MEM-"]),
+                        cpu_cores=int(values["-VM_CPU-"]),
+                        vhd_path=os.path.join(values["-VM_PATH-"], values["-VM_NAME-"], f"{values["-VM_NAME-"]}.vhdx") if values["-DISK_NEW-"] else None,
+                        vhd_size_gb=int(values["-DISK_SIZE-"]) if values["-DISK_NEW-"] else None,
+                        existing_vhd_path=values["-DISK_PATH-"] if values["-DISK_EXIST-"] else None,
+                        vswitch_name=values["-VM_VSWITCH-"],
+                        iso_path=iso_path,
+                        enable_secure_boot=values["-SECURE_BOOT-"]
                     )
-                )
-                navigate_to_view(3, 2) # Switch to Image view, Downloads tab
-                page.update()
+                    if success:
+                        sg.popup("虚拟机创建成功！")
+                        refresh_vm_table(window)
+                    else:
+                        sg.popup_error(f"创建失败: {output}")
 
-            card = ft.Card(
-                content=ft.Container(
-                    padding=15,
-                    content=ft.Column([
-                        ft.Text(img.get("name"), size=18, weight=ft.FontWeight.BOLD),
-                        ft.Text(img.get("description")),
-                        ft.Text(f"分类: {img.get("category")}"),
-                        ft.Text(f"版本: {img.get("version")}"),
-                        ft.Text(f"大小: {img.get("size")}"),
-                        ft.ElevatedButton("下载", icon=ft.Icons.DOWNLOAD, on_click=lambda e, url=img.get("download_url"), filename=img.get("name") + ".iso": start_download_click(e, url, filename))
-                    ])
-                )
-            )
-            image_cards.append(card)
-        return ft.Column(image_cards, scroll=ft.ScrollMode.ALWAYS, expand=True)
+        if event == "-WIZARD_BACK-":
+            if wizard_step > 1:
+                window[f"-WIZARD_STEP_{wizard_step}-"].update(visible=False)
+                wizard_step -= 1
+                window[f"-WIZARD_STEP_{wizard_step}-"].update(visible=True)
+                window["-WIZARD_NEXT-"].update("下一步")
+                if wizard_step == 1:
+                    window["-WIZARD_BACK-"].update(disabled=True)
 
-    image_tabs = ft.Tabs(
-        selected_index=0,
-        animation_duration=300,
-        tabs=[
-            ft.Tab(text="本地镜像", content=build_local_images_view()),
-            ft.Tab(text="在线市场", content=build_online_images_view()),
-            ft.Tab(text="下载任务", content=download_tasks_list),
-        ],
-        expand=1,
-    )
+        if event == "-DISK_EXIST-":
+            window["-DISK_PATH-"].update(disabled=False)
+            window["-DISK_SIZE-"].update(disabled=True)
+        if event == "-DISK_NEW-":
+            window["-DISK_PATH-"].update(disabled=True)
+            window["-DISK_SIZE-"].update(disabled=False)
 
-    view_images = ft.Column([
-        ft.Text("系统镜像管理", size=30),
-        image_tabs,
-        create_help_button("系统镜像管理", "管理本地的ISO/VHDX镜像文件，以及从在线市场获取常用操作系统镜像。 ")
-    ])
+    window.close()
 
-    refresh_local_images_list()
-
-    # --- Main Layout ---
-    all_views = [view_vms, view_network, view_create, view_images, view_system]
-    for i, view in enumerate(all_views):
-        view.visible = (i == 0)
-
-    def navigate_to_view(index, tab_index=None):
-        rail.selected_index = index
-        for i, view in enumerate(all_views):
-            view.visible = (i == index)
-        if index == 3 and tab_index is not None: # Special handling for image tabs
-            image_tabs.selected_index = tab_index
-        page.update()
-
-    rail = ft.NavigationRail(
-        selected_index=0,
-        label_type=ft.NavigationRailLabelType.ALL,
-        min_width=100,
-        destinations=[
-            ft.NavigationRailDestination(icon=ft.Icons.COMPUTER_OUTLINED, selected_icon=ft.Icons.COMPUTER, label="虚拟机"),
-            ft.NavigationRailDestination(icon=ft.Icons.ROUTER_OUTLINED, selected_icon=ft.Icons.ROUTER, label="网络设置"),
-            ft.NavigationRailDestination(icon=ft.Icons.ADD_BOX_OUTLINED, selected_icon=ft.Icons.ADD_BOX, label="创建虚拟机"),
-            ft.NavigationRailDestination(icon=ft.Icons.IMAGE_OUTLINED, selected_icon=ft.Icons.IMAGE, label="系统镜像"),
-            ft.NavigationRailDestination(icon=ft.Icons.SETTINGS_OUTLINED, selected_icon=ft.Icons.SETTINGS, label="系统检查"),
-        ],
-        on_change=lambda e: navigate_to_view(e.control.selected_index),
-    )
-
-    page.add(ft.Row([rail, ft.VerticalDivider(width=1), ft.Column(all_views, expand=True)], expand=True))
+if __name__ == "__main__":
+    import ctypes, sys
+    def is_admin():
+        try:
+            return ctypes.windll.shell32.IsUserAnAdmin()
+        except:
+            return False
     
-    # Initial data load
-    refresh_vms_table()
-    refresh_vswitches_table()
-
-ft.app(target=main)
+    if is_admin():
+        main()
+    else:
+        # Re-run the program with admin rights
+        ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)

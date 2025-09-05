@@ -1,0 +1,21 @@
+<div class="container">
+    <h1><i class="fas fa-sliders-h me-2"></i>设置</h1>
+    <hr>
+    <div class="card">
+        <div class="card-header">
+            镜像管理设置
+        </div>
+        <div class="card-body">
+            <div class="mb-3">
+                <label for="local-iso-path" class="form-label">本地镜像扫描路径</label>
+                <div class="input-group">
+                    <input type="text" class="form-control" id="local-iso-path" placeholder="例如: C:\Users\YourUser\Documents\ISOs" readonly>
+                    <button class="btn btn-outline-secondary" type="button" id="browse-iso-path">选择文件夹</button>
+                </div>
+                <div class="form-text">指定一个文件夹，应用将扫描其中的 .iso 文件作为本地镜像。</div>
+            </div>
+            <button class="btn btn-primary" id="save-settings">保存设置</button>
+            <div id="settings-feedback" class="mt-2"></div>
+        </div>
+    </div>
+</div>

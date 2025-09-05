@@ -1,0 +1,36 @@
+body {
+    overflow-x: hidden;
+}
+
+#wrapper {
+    display: flex;
+}
+
+#sidebar-wrapper {
+    width: 250px;
+    flex-shrink: 0; /* Do not allow sidebar to shrink */
+}
+
+#page-content-wrapper {
+    width: calc(100% - 250px);
+}
+
+#wrapper.toggled #sidebar-wrapper {
+    margin-left: -250px;
+    transition: margin .25s ease-out;
+}
+
+#sidebar-wrapper {
+    transition: margin .25s ease-out;
+}
+
+/* Add some basic styles from before */
+#sidebar-wrapper .sidebar-heading {
+    padding: 0.875rem 1.25rem;
+    font-size: 1.2rem;
+}
+
+table.table-hover tbody tr.selected {
+    background-color: #cfe2ff;
+    font-weight: bold;
+}

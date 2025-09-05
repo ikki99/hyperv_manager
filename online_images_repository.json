@@ -1,74 +1,44 @@
 [
     {
-        "name": "Ubuntu 25.04 Server",
-        "version": "25.04",
-        "description": "最新版本的 Ubuntu 服务器操作系统。",
-        "category": "Linux",
-        "download_url": "https://mirror.math.princeton.edu/pub/ubuntu-iso/25.04/ubuntu-25.04-live-server-amd64.iso",
-        "size": "N/A"
+        "Name": "Windows 11 Dev Drive",
+        "Version": "23H2",
+        "Size": "8 GB",
+        "Description": "An official, lightweight Windows 11 environment for developers, provided by Microsoft.",
+        "DownloadUrl": "https://www.microsoft.com/en-us/windows/dev-drive/"
     },
     {
-        "name": "Ubuntu Server 22.04 LTS",
-        "version": "22.04.4",
-        "description": "长期支持（LTS）版本的 Ubuntu 服务器。",
-        "category": "Linux",
-        "download_url": "https://releases.ubuntu.com/22.04/ubuntu-22.04.4-live-server-amd64.iso",
-        "size": "2.1 GB"
+        "Name": "Ubuntu Server (LTS)",
+        "Version": "24.04",
+        "Size": "2.5 GB",
+        "Description": "The latest Long-Term Support version of Ubuntu Server.",
+        "DownloadUrl": "https://ubuntu.com/download/server"
     },
     {
-        "name": "Debian 12 (Bookworm)",
-        "version": "12.5.0",
-        "description": "Debian 操作系统的最新稳定版本 (网络安装版)。",
-        "category": "Linux",
-        "download_url": "https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.5.0-amd64-netinst.iso",
-        "size": "650 MB"
+        "Name": "Debian",
+        "Version": "12",
+        "Size": "380 MB",
+        "Description": "The universal operating system, known for its stability and large software repositories.",
+        "DownloadUrl": "https://www.debian.org/distrib/"
     },
     {
-        "name": "Rocky Linux 9.4",
-        "version": "9.4",
-        "description": "与 RHEL 兼容的企业级 Linux 发行版。",
-        "category": "Linux",
-        "download_url": "https://download.rockylinux.org/pub/rocky/9/isos/x86_64/Rocky-9.4-x86_64-dvd.iso",
-        "size": "9.0 GB"
+        "Name": "CentOS Stream",
+        "Version": "9",
+        "Size": "2 GB",
+        "Description": "A continuously delivered distro that’s a preview of what’s next in Red Hat Enterprise Linux.",
+        "DownloadUrl": "https://www.centos.org/centos-stream/"
     },
     {
-        "name": "Alpine Linux (Virtual)",
-        "version": "3.22.1",
-        "description": "一个面向安全、为虚拟化优化的轻量级 Linux 发行版。",
-        "category": "Linux",
-        "download_url": "https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/x86_64/alpine-virt-3.22.1-x86_64.iso",
-        "size": "65 MB"
+        "Name": "Fedora Server",
+        "Version": "40",
+        "Size": "2.5 GB",
+        "Description": "A powerful, flexible OS that includes the best and latest datacenter technologies.",
+        "DownloadUrl": "https://fedoraproject.org/server/download/"
     },
     {
-        "name": "Windows Server 2022 (Eval)",
-        "version": "2022",
-        "description": "来自微软的180天评估版本。",
-        "category": "Windows",
-        "download_url": "https://software-download.microsoft.com/download/pr/Windows_Server_2022_EVAL_en-us.iso",
-        "size": "5.2 GB"
-    },
-    {
-        "name": "Tiny11 by NTDEV",
-        "version": "23H2",
-        "description": "一个轻量级的 Windows 11 版本。",
-        "category": "Windows (Optimized)",
-        "download_url": "https://archive.org/download/tiny-11-NTDEV/Tiny11%2023H2.iso",
-        "size": "4.2 GB"
-    },
-    {
-        "name": "Tiny10 by NTDEV",
-        "version": "23H2",
-        "description": "一个轻量级的 Windows 10 版本。",
-        "category": "Windows (Optimized)",
-        "download_url": "https://archive.org/download/tiny-10-23-h2/tiny10%20x64%2023h2.iso",
-        "size": "N/A"
-    },
-    {
-        "name": "FreeDOS 1.3",
-        "version": "1.3",
-        "description": "一个开源的兼容DOS的操作系统。",
-        "category": "Other",
-        "download_url": "https://www.freedos.org/download/download/fdfullcd.iso",
-        "size": "492 MB"
+        "Name": "AlmaLinux",
+        "Version": "9",
+        "Size": "1.8 GB",
+        "Description": "A 1:1 binary compatible clone of RHEL®, guided and built by the community.",
+        "DownloadUrl": "https://almalinux.org/get-almalinux/"
     }
 ]

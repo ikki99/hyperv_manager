@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "HyperVManager (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "HyperVManager (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

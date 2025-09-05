@@ -1,0 +1,14 @@
+<Page
+    x:Class="HyperVManager.Views.WizardStep4Page"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+    <StackPanel Spacing="10" Margin="20">
+        <TextBlock Text="步骤 4: 网络" FontSize="20" FontWeight="Bold"/>
+        <TextBlock Text="虚拟交换机:"/>
+        <ComboBox x:Name="VSwitchComboBox" ItemsSource="{x:Bind VSwitches, Mode=OneWay}" DisplayMemberPath="Name" SelectedValuePath="Name" SelectedValue="{x:Bind ViewModel.SelectedVSwitchName, Mode=TwoWay}"/>
+        <TextBlock Text="?" ToolTipService.ToolTip="为虚拟机选择一个网络连接。&#x0a;Default Switch: 可访问外网的默认交换机。&#x0a;Internal/Private: 仅用于内部网络的交换机。"/>
+    </StackPanel>
+</Page>

@@ -98,7 +98,7 @@ app.whenReady().then(() => {
 
   ipcMain.handle('images:getOnline', async () => {
       try {
-          const repoPath = path.join(app.getAppPath(), '..', 'online_images_repository.json');
+          const repoPath = path.join(app.getAppPath(), 'online_images_repository.json');
           const data = await fs.readFile(repoPath, 'utf-8');
           return JSON.parse(data);
       } catch (error) {
@@ -114,8 +114,16 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle('vm:set-network-adapter', async (event, vmName, switchName) => {
-      return await psService.setVMNetworkAdapter(vmName, switchName);
-  });
+          return await psService.setVMNetworkAdapter(vmName, switchName);
+      });
+
+      ipcMain.handle('vm:set-dvd-drive', async (event, vmName, isoPath) => {
+          return await psService.setVMDvdDrive(vmName, isoPath);
+      });
+
+      ipcMain.handle('vm:get-network-adapter-details', async (event, vmName) => {
+          return await psService.getVMNetworkAdapterDetails(vmName);
+      });
 
   // NAT IPC Handlers
   ipcMain.handle('nat:get-networks', async () => {

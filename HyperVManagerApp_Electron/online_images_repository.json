@@ -1,106 +1,121 @@
 [
-    {
-        "name": "Ubuntu 25.04 Server",
-        "version": "25.04",
-        "description": "最新版本的 Ubuntu 服务器操作系统。",
-        "category": "Linux",
-        "download_url": "https://mirror.math.princeton.edu/pub/ubuntu-iso/25.04/ubuntu-25.04-live-server-amd64.iso",
-        "size": "N/A"
-    },
-    {
-        "name": "Ubuntu Server 22.04 LTS",
-        "version": "22.04.4",
-        "description": "长期支持（LTS）版本的 Ubuntu 服务器。",
-        "category": "Linux",
-        "download_url": "https://releases.ubuntu.com/22.04/ubuntu-22.04.4-live-server-amd64.iso",
-        "size": "2.1 GB"
-    },
-    {
-        "name": "Debian 12 (Bookworm)",
-        "version": "12.5.0",
-        "description": "Debian 操作系统的最新稳定版本 (网络安装版)。",
-        "category": "Linux",
-        "download_url": "https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.5.0-amd64-netinst.iso",
-        "size": "650 MB"
-    },
-    {
-        "name": "Rocky Linux 9.4",
-        "version": "9.4",
-        "description": "与 RHEL 兼容的企业级 Linux 发行版。",
-        "category": "Linux",
-        "download_url": "https://download.rockylinux.org/pub/rocky/9/isos/x86_64/Rocky-9.4-x86_64-dvd.iso",
-        "size": "9.0 GB"
-    },
-    {
-        "name": "CentOS Stream 9",
-        "version": "9",
-        "description": "一个持续交付的 Linux 发行版，作为 RHEL 的上游开发分支。",
-        "category": "Linux",
-        "download_url": "https://mirror.stream.centos.org/9-stream/BaseOS/x86_64/iso/CentOS-Stream-9-latest-x86_64-dvd1.iso",
-        "size": "8.8 GB"
-    },
-    {
-        "name": "Fedora Server",
-        "version": "40",
-        "description": "一个功能强大的服务器操作系统，由 Red Hat 赞助的社区项目构建。",
-        "category": "Linux",
-        "download_url": "https://download.fedoraproject.org/pub/fedora/linux/releases/40/Server/x86_64/iso/Fedora-Server-dvd-x86_64-40-1.14.iso",
-        "size": "2.5 GB"
-    },
-    {
-        "name": "Arch Linux",
-        "version": "Rolling",
-        "description": "一个轻量级、灵活的滚动发行版，适合高级用户。",
-        "category": "Linux",
-        "download_url": "https://geo.mirror.pkgbuild.com/iso/latest/archlinux-x86_64.iso",
-        "size": "870 MB"
-    },
-    {
-        "name": "Alpine Linux (Virtual)",
-        "version": "3.22.1",
-        "description": "一个面向安全、为虚拟化优化的轻量级 Linux 发行版。",
-        "category": "Linux",
-        "download_url": "https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/x86_64/alpine-virt-3.22.1-x86_64.iso",
-        "size": "65 MB"
-    },
-    {
-        "name": "Windows 11 Enterprise (Eval)",
-        "version": "23H2",
-        "description": "来自微软的90天评估版本。",
-        "category": "Windows",
-        "download_url": "https://software.download.prss.microsoft.com/dbazure/Win11_23H2_English_x64.iso",
-        "size": "5.4 GB"
-    },
-    {
-        "name": "Windows Server 2022 (Eval)",
-        "version": "2022",
-        "description": "来自微软的180天评估版本。",
-        "category": "Windows",
-        "download_url": "https://software-download.microsoft.com/download/pr/Windows_Server_2022_EVAL_en-us.iso",
-        "size": "5.2 GB"
-    },
-    {
-        "name": "Tiny11 by NTDEV",
-        "version": "23H2",
-        "description": "一个轻量级的 Windows 11 版本。",
-        "category": "Windows (Optimized)",
-        "download_url": "https://archive.org/download/tiny-11-NTDEV/Tiny11%2023H2.iso",
-        "size": "4.2 GB"
-    },
-    {
-        "name": "Tiny10 by NTDEV",
-        "version": "23H2",
-        "description": "一个轻量级的 Windows 10 版本。",
-        "category": "Windows (Optimized)",
-        "download_url": "https://archive.org/download/tiny-10-23-h2/tiny10%20x64%2023h2.iso",
-        "size": "N/A"
-    },
-    {
-        "name": "FreeDOS 1.3",
-        "version": "1.3",
-        "description": "一个开源的兼容DOS的操作系统。",
-        "category": "Other",
-        "download_url": "https://www.freedos.org/download/download/fdfullcd.iso",
-        "size": "492 MB"
-    }
+  {
+    "Name": "Windows 11 Dev Drive",
+    "Version": "23H2",
+    "Size": "8 GB",
+    "Description": "微软官方发布的轻量版 Windows 11，专为开发者设计，适合虚拟机环境。",
+    "DownloadUrl": "https://www.microsoft.com/en-us/windows/dev-drive/"
+  },
+  {
+    "Name": "Ubuntu Server (LTS)",
+    "Version": "24.04",
+    "Size": "2.5 GB",
+    "Description": "Ubuntu 最新长期支持版服务器镜像，稳定可靠，适合生产环境部署。",
+    "DownloadUrl": "https://ubuntu.com/download/server"
+  },
+  {
+    "Name": "Debian",
+    "Version": "12",
+    "Size": "380 MB",
+    "Description": "稳定性极高的通用 Linux 发行版，拥有庞大的软件仓库，适合构建自定义系统。",
+    "DownloadUrl": "https://www.debian.org/distrib/"
+  },
+  {
+    "Name": "CentOS Stream",
+    "Version": "9",
+    "Size": "2 GB",
+    "Description": "Red Hat 企业版的滚动预览版本，适合测试未来 RHEL 功能。",
+    "DownloadUrl": "https://www.centos.org/centos-stream/"
+  },
+  {
+    "Name": "Fedora Server",
+    "Version": "40",
+    "Size": "2.5 GB",
+    "Description": "快速更新的现代服务器系统，支持模块化和 SELinux 安全机制。",
+    "DownloadUrl": "https://fedoraproject.org/server/download/"
+  },
+  {
+    "Name": "AlmaLinux",
+    "Version": "9",
+    "Size": "1.8 GB",
+    "Description": "由社区维护的 RHEL 完全兼容版本，适合企业级部署。",
+    "DownloadUrl": "https://almalinux.org/get-almalinux/"
+  },
+  {
+    "Name": "Ubuntu Server",
+    "Version": "25.04",
+    "Size": "1.9 GB",
+    "Description": "Ubuntu 25.04 Server（Plucky Puffin）官方镜像，无图形界面，适合纯服务器环境。",
+    "DownloadUrl": "https://mirror.math.princeton.edu/pub/ubuntu-iso/25.04/ubuntu-25.04-live-server-amd64.iso"
+  },
+  {
+    "Name": "Debian",
+    "Version": "13 Netinst",
+    "Size": "410 MB",
+    "Description": "Debian 13（Trixie）最小安装镜像，适合构建精简系统或自定义环境。",
+    "DownloadUrl": "https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-13.0.0-amd64-netinst.iso"
+  },
+  {
+    "Name": "Tiny10",
+    "Version": "23H2",
+    "Size": "2.7 GB",
+    "Description": "由 NTDEV 精简的 Windows 10 版本，资源占用极低，适合低配虚拟机。",
+    "DownloadUrl": "https://archive.org/details/tiny-10-23-h2"
+  },
+  {
+    "Name": "Linux Mint XFCE",
+    "Version": "21.3",
+    "Size": "2.4 GB",
+    "Description": "基于 XFCE 的轻量级 Linux Mint 桌面版，界面简洁，适合低配设备与日常使用。",
+    "DownloadUrl": "https://linuxmint.com/edition.php?id=307"
+ },
+  {
+    "Name": "Linux Lite",
+    "Version": "6.6",
+    "Size": "2.3 GB",
+    "Description": "基于 Ubuntu 的轻量桌面系统，界面简洁，适合新手和旧设备。",
+    "DownloadUrl": "https://www.linuxliteos.com/download.php"
+  },
+  {
+    "Name": "MX Linux",
+    "Version": "23.1 XFCE",
+    "Size": "1.9 GB",
+    "Description": "基于 Debian 的稳定轻量桌面系统，内置丰富图形工具，适合日常使用。",
+    "DownloadUrl": "https://mxlinux.org/download-links/"
+  },
+  {
+    "Name": "Zorin OS Lite",
+    "Version": "17",
+    "Size": "2.4 GB",
+    "Description": "界面类似 Windows 的轻量 Linux 发行版，专为低配置设备设计。",
+    "DownloadUrl": "https://zorin.com/os/download/"
+  },
+  {
+    "Name": "Puppy Linux",
+    "Version": "Fossapup64 9.5",
+    "Size": "300 MB",
+    "Description": "极小体积的 Linux 桌面系统，可完全运行于内存中，适合旧硬件。",
+    "DownloadUrl": "https://puppylinux.com/download.html"
+  },
+  {
+    "Name": "Tiny Core Linux",
+    "Version": "14.0",
+    "Size": "16 MB",
+    "Description": "仅 16MB 的极简 Linux 系统，适合极低资源环境或嵌入式应用。",
+    "DownloadUrl": "https://tinycorelinux.net/downloads.html"
+  },
+  {
+    "Name": "Windows Server",
+    "Version": "2022 Evaluation",
+    "Size": "5.7 GB",
+    "Description": "微软官方提供的 Windows Server 2022 试用版，有效期 180 天，适合测试部署。",
+    "DownloadUrl": "https://www.microsoft.com/en-us/evalcenter/download-windows-server-2022"
+  },
+  {
+    "Name": "Windows Server",
+    "Version": "2025 Preview",
+    "Size": "6.5 GB",
+    "Description": "社区分享的 Windows Server 2025 预览版镜像，适合尝鲜测试。",
+    "DownloadUrl": "https://www.bilibili.com/opus/1058688848444260357"
+  }
 ]

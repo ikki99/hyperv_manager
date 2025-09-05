@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Wizard APIs
   createVM: (vmDetails) => ipcRenderer.invoke('wizard:create-vm', vmDetails),
   setVMNetworkAdapter: (vmName, switchName) => ipcRenderer.invoke('vm:set-network-adapter', vmName, switchName),
+  setVMDvdDrive: (vmName, isoPath) => ipcRenderer.invoke('vm:set-dvd-drive', vmName, isoPath),
+  getVMNetworkAdapterDetails: (vmName) => ipcRenderer.invoke('vm:get-network-adapter-details', vmName),
   // NAT APIs
   getNatNetworks: () => ipcRenderer.invoke('nat:get-networks'),
   getNatRules: (natName) => ipcRenderer.invoke('nat:get-rules', natName),

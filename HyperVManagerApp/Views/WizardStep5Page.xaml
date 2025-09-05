@@ -1,0 +1,39 @@
+<Page
+    x:Class="HyperVManager.Views.WizardStep5Page"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+    <StackPanel Spacing="10" Margin="20">
+        <TextBlock Text="步骤 5: 安装选项" FontSize="20" FontWeight="Bold"/>
+        <TextBlock Text="说明: 如果您在步骤3中选择了'使用现有虚拟硬盘'，则无需在此选择安装介质。" FontSize="12" Foreground="Gray"/>
+
+        <Pivot>
+            <PivotItem Header="从本地文件">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="选择一个本地的 .iso 镜像文件用于安装系统。"/>
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <TextBox x:Name="IsoPathTextBox" Text="{x:Bind ViewModel.IsoPath, Mode=TwoWay}" PlaceholderText="选择 ISO 镜像路径" IsReadOnly="True" Width="300"/>
+                        <Button Content="浏览" Click="OnBrowseIsoClicked"/>
+                    </StackPanel>
+                </StackPanel>
+            </PivotItem>
+            <PivotItem Header="从已下载镜像">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="从通过本软件下载的镜像列表中选择一个进行安装。"/>
+                    xmlns:controls="using:CommunityToolkit.WinUI.UI.Controls"
+                                       AutoGenerateColumns="False"
+                                       IsReadOnly="True"
+                                       HeadersVisibility="Column"
+                                       ItemsSource="{x:Bind DownloadedImages, Mode=OneWay}">
+                        <controls:DataGrid.Columns>
+                            <controls:DataGridTextColumn Header="文件名" Binding="{Binding FileName}" Width="*"/>
+                            <controls:DataGridTextColumn Header="大小" Binding="{Binding Size}" Width="Auto"/>
+                        </controls:DataGrid.Columns>
+                    </controls:DataGrid>
+                </StackPanel>
+            </PivotItem>
+        </Pivot>
+    </StackPanel>
+</Page>

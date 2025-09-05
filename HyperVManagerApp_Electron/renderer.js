@@ -37,12 +37,32 @@ function initVmsPage() {
         if (selectedVmName) {
             const vmSettingsModal = new bootstrap.Modal(document.getElementById('vmSettingsModal'));
             document.getElementById('vm-settings-title').textContent = selectedVmName;
-            // Populate switches and show
-            window.electronAPI.getVSwitches().then(switches => {
+
+            // Populate switches
+            window.electronAPI.getVSwitches().then(async switches => { // Added async here
                 const switchSelect = document.getElementById('vm-network-switch');
                 switchSelect.innerHTML = switches.map(s => `<option value="${s.Name}">${s.Name} (${s.SwitchType})</option>`).join('');
-                vmSettingsModal.show();
+
+                // Get current VM's network adapter details and pre-select the switch
+                const vmAdapterDetails = await window.electronAPI.getVMNetworkAdapterDetails(selectedVmName);
+                if (vmAdapterDetails && vmAdapterDetails.SwitchName) {
+                    switchSelect.value = vmAdapterDetails.SwitchName;
+                }
             });
+
+            // Populate ISOs
+            window.electronAPI.getSetting('localIsoPath').then(isoPath => {
+                const isoSelect = document.getElementById('vm-settings-iso-path');
+                if (isoPath) {
+                    window.electronAPI.getLocalImages(isoPath).then(isos => {
+                        isoSelect.innerHTML = '<option value="">弹出/无</option>' + isos.map(i => `<option value="${i.Path}">${i.Name}</option>`).join('');
+                    });
+                } else {
+                    isoSelect.innerHTML = '<option value="">请先在设置中指定ISO路径</option>';
+                }
+            });
+
+            vmSettingsModal.show();
         }
     });
 
@@ -109,6 +129,12 @@ function initVmsPage() {
             case 'install-nginx':
                 commandTextarea.value = 'sudo apt install nginx -y';
                 break;
+            case 'set-static-ip':
+                commandTextarea.value = `# --- 请在执行前修改以下变量 ---\n$interfaceAlias = "Ethernet" # 通常是 "Ethernet" 或 "以太网", 请根据实际情况修改\n$ipAddress = "192.168.1.100"   # 你要设置的静态IP地址\n$prefixLength = 24              # 子网掩码前缀 (24 对应 255.255.255.0)\n$gateway = "192.168.1.1"       # 你的网关地址\n$dns = "8.8.8.8"               # 你的DNS服务器地址\n# ---------------------------------\n\n# 获取网卡信息\n$netAdapter = Get-NetAdapter -Name $interfaceAlias\nif (-not $netAdapter) {\n    Write-Error "错误：找不到名为 '$interfaceAlias' 的网络适配器。"\n    exit\n}\n\n# 移除现有IP地址 (避免冲突)\nGet-NetIPAddress -InterfaceAlias $interfaceAlias | Remove-NetIPAddress -Confirm:$false\n\n# 设置新IP地址和网关\nNew-NetIPAddress -InterfaceAlias $interfaceAlias -IPAddress $ipAddress -PrefixLength $prefixLength -DefaultGateway $gateway\n\n# 设置DNS服务器\nSet-DnsClientServerAddress -InterfaceAlias $interfaceAlias -ServerAddresses $dns\n\nWrite-Host "IP地址设置完成。"\nWrite-Host "新IP: $ipAddress"\nWrite-Host "网关: $gateway"\nWrite-Host "DNS: $dns"`;
+                break;
+            case 'set-static-ip-linux':
+                commandTextarea.value = `# --- 请在执行前修改以下变量 ---\nINTERFACE_NAME="eth0"      # 你的网卡名称, 通常是 eth0\nIP_ADDRESS="192.168.1.101/24" # 你要设置的静态IP地址和子网掩码 (CIDR格式)\nGATEWAY="192.168.1.1"        # 你的网关地址\nDNS1="8.8.8.8"               # 首选DNS服务器\nDNS2="1.1.1.1"               # 备用DNS服务器\n# ---------------------------------\n\n# 创建新的 Netplan 配置文件\n# 注意: 这会覆盖现有的网络配置\ncat <<EOF | sudo tee /etc/netplan/01-custom-netcfg.yaml\nnetwork:\n  version: 2\n  renderer: networkd\n  ethernets:\n    $INTERFACE_NAME:\n      dhcp4: no\n      addresses:\n        - $IP_ADDRESS\n      routes:\n        - to: default\n          via: $GATEWAY\n      nameservers:\n        addresses: [$DNS1, $DNS2]\nEOF\n\n# 应用新的网络配置\necho "正在应用新的网络配置..."\nsudo netplan apply\n\necho "网络配置完成。"`;
+                break;
             default:
                 commandTextarea.value = '';
         }
@@ -118,9 +144,18 @@ function initVmsPage() {
     document.getElementById('main-content').addEventListener('click', async (e) => {
         if (e.target && e.target.id === 'save-vm-settings') {
             const newSwitch = document.getElementById('vm-network-switch').value;
-            await window.electronAPI.setVMNetworkAdapter(selectedVmName, newSwitch);
+            const newIsoPath = document.getElementById('vm-settings-iso-path').value;
+
+            const updatePromises = [];
+            if (newSwitch) {
+                updatePromises.push(window.electronAPI.setVMNetworkAdapter(selectedVmName, newSwitch));
+            }
+            updatePromises.push(window.electronAPI.setVMDvdDrive(selectedVmName, newIsoPath));
+
+            await Promise.all(updatePromises);
+
             bootstrap.Modal.getInstance(document.getElementById('vmSettingsModal')).hide();
-            alert(`虚拟机 ${selectedVmName} 的网络已更新。`);
+            alert(`虚拟机 ${selectedVmName} 的设置已更新。`);
         }
     });
 }
@@ -412,6 +447,7 @@ function updateButtonStates() {
         document.getElementById('delete-vm').disabled = !isVmSelected;
         document.getElementById('connect-vm').disabled = !isVmSelected;
         document.getElementById('settings-vm').disabled = !isVmSelected;
+        document.getElementById('remote-exec-vm').disabled = !isVmSelected;
     }
 }
 
@@ -488,11 +524,32 @@ async function loadVMs() {
         document.getElementById('context-settings').addEventListener('click', () => {
             const vmSettingsModal = new bootstrap.Modal(document.getElementById('vmSettingsModal'));
             document.getElementById('vm-settings-title').textContent = selectedVmName;
-            window.electronAPI.getVSwitches().then(switches => {
+            
+            // Populate switches
+            window.electronAPI.getVSwitches().then(async switches => { // Added async here
                 const switchSelect = document.getElementById('vm-network-switch');
                 switchSelect.innerHTML = switches.map(s => `<option value="${s.Name}">${s.Name} (${s.SwitchType})</option>`).join('');
-                vmSettingsModal.show();
+
+                // Get current VM's network adapter details and pre-select the switch
+                const vmAdapterDetails = await window.electronAPI.getVMNetworkAdapterDetails(selectedVmName);
+                if (vmAdapterDetails && vmAdapterDetails.SwitchName) {
+                    switchSelect.value = vmAdapterDetails.SwitchName;
+                }
             });
+
+            // Populate ISOs
+            window.electronAPI.getSetting('localIsoPath').then(isoPath => {
+                const isoSelect = document.getElementById('vm-settings-iso-path');
+                if (isoPath) {
+                    window.electronAPI.getLocalImages(isoPath).then(isos => {
+                        isoSelect.innerHTML = '<option value="">弹出/无</option>' + isos.map(i => `<option value="${i.Path}">${i.Name}</option>`).join('');
+                    });
+                } else {
+                    isoSelect.innerHTML = '<option value="">请先在设置中指定ISO路径</option>';
+                }
+            });
+
+            vmSettingsModal.show();
         });
         document.getElementById('context-delete').addEventListener('click', () => {
             if (selectedVmName && confirm(`您确定要删除虚拟机 ${selectedVmName} 吗？此操作将永久删除虚拟机及其所有数据，不可逆！`)) {
@@ -607,7 +664,6 @@ async function initWizard() {
         document.getElementById('createVmWizardModal').addEventListener('show.bs.modal', async () => {
             // Reset to first step and populate dynamic data
             goToStep(0);
-            document.getElementById('create-switch-form').reset();
             document.getElementById('wiz-creation-status').innerHTML = '';
 
             // Populate network switches

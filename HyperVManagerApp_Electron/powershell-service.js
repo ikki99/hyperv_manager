@@ -324,6 +324,23 @@ class PowerShellService {
     }
 
     /**
+     * Sets the ISO path for a VM's DVD drive.
+     * @param {string} vmName The name of the VM.
+     * @param {string} isoPath The local path to the ISO file. Pass null or empty string to eject.
+     * @returns {Promise<boolean>}
+     */
+    async setVMDvdDrive(vmName, isoPath) {
+        const command = `Set-VMDvdDrive -VMName "${vmName}" -Path ${isoPath ? `"${isoPath}"` : '""'}`;
+        try {
+            await this.executePowerShellCommand(command);
+            return true;
+        } catch (error) {
+            console.error(`Error setting DVD drive for VM ${vmName}:`, error);
+            return false;
+        }
+    }
+
+    /**
      * Invokes a command inside a VM using PowerShell Direct.
      * @param {string} vmName The name of the VM.
      * @param {string} username The username for the VM.
@@ -379,8 +396,26 @@ class PowerShellService {
             await this.executePowerShellCommand(command);
             return true;
         } catch (error) {
-            console.error('Error installing Hyper-V:', error);
+            console.error(`Error installing Hyper-V:`, error);
             return false;
+        }
+    }
+
+    /**
+     * Gets details of a VM's network adapter.
+     * @param {string} vmName The name of the VM.
+     * @returns {Promise<Object|null>}
+     */
+    async getVMNetworkAdapterDetails(vmName) {
+        const command = `Get-VMNetworkAdapter -VMName "${vmName}" | Select-Object Name, SwitchName, MacAddress, IPAddresses | ConvertTo-Json -Compress`;
+        try {
+            const jsonOutput = await this.executePowerShellCommand(command);
+            if (!jsonOutput) return null;
+            const data = JSON.parse(jsonOutput);
+            return Array.isArray(data) ? data[0] : data; // Assuming one network adapter for simplicity
+        } catch (error) {
+            console.error(`Error getting network adapter details for VM ${vmName}:`, error);
+            return null;
         }
     }
 
@@ -404,8 +439,10 @@ class PowerShellService {
         const command = `Get-ChildItem -Path "${path}" -Filter "*.iso" -Recurse | Select-Object Name, FullName, Length | ConvertTo-Json -Compress`;
         try {
             const jsonOutput = await this.executePowerShellCommand(command);
+            if (!jsonOutput) return []; // Handle empty output
             const data = JSON.parse(jsonOutput);
-            return Array.isArray(data) ? data.map(f => ({ Name: f.Name, Path: f.FullName, Size: `${(f.Length / (1024 * 1024 * 1024)).toFixed(2)} GB` })) : [];
+            const dataArray = Array.isArray(data) ? data : [data]; // Ensure it's always an array
+            return dataArray.map(f => ({ Name: f.Name, Path: f.FullName, Size: `${(f.Length / (1024 * 1024 * 1024)).toFixed(2)} GB` }));
         } catch (error) {
             console.error(`Error scanning local images in ${path}:`, error);
             return [];

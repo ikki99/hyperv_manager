@@ -77,6 +77,8 @@
                         <option value="install-git-vscode">Windows: 安装 Git 和 VSCode (需 Chocolatey)</option>
                         <option value="update-apt">Ubuntu/Debian: 更新软件包列表 (sudo apt update)</option>
                         <option value="install-nginx">Ubuntu/Debian: 安装 Nginx (sudo apt install nginx -y)</option>
+                        <option value="set-static-ip">Windows: 设置静态IP (模板)</option>
+                        <option value="set-static-ip-linux">Debian/Ubuntu: 设置静态IP (模板)</option>
                     </select>
                 </div>
                 <button class="btn btn-primary" id="execute-remote-command">执行</button>
@@ -110,6 +112,10 @@
                 <div class="mb-3">
                     <label for="vm-network-switch" class="form-label">网络适配器</label>
                     <select class="form-select" id="vm-network-switch"></select>
+                </div>
+                <div class="mb-3">
+                    <label for="vm-settings-iso-path" class="form-label">CD/DVD 驱动器 (ISO)</label>
+                    <select class="form-select" id="vm-settings-iso-path"></select>
                 </div>
             </div>
             <div class="modal-footer">

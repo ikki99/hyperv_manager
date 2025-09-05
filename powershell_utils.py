@@ -41,12 +41,14 @@ def _run_powershell_command(command):
 
 def get_vms_data():
     """Get data for all Hyper-V virtual machines"""
+    # Select the State object directly, it will be serialized as a string (e.g., "Running", "Off")
     ps_command = """
     Get-VM | Select-Object Name, State, Uptime, MemoryAssigned, CPUUsage, @{Name='GuestOS';Expression={$_.Guest.OS}}, @{Name='IPAddresses';Expression={$_.NetworkAdapters.IPAddresses}} | ConvertTo-Json -Compress
     """
     success, output = _run_powershell_command(ps_command)
     if success and output:
         try:
+            # Handle single VM case where JSON is not an array
             parsed_json = json.loads(output)
             if isinstance(parsed_json, dict):
                 return [parsed_json]
@@ -202,14 +204,14 @@ def get_nat_rules(nat_name):
 
 def add_nat_rule(nat_name, external_port, internal_ip, internal_port, protocol):
     """Add a NAT port mapping rule"""
-    ps_command = f"Add-NetNatStaticMapping -NatName \"{nat_name}\" -ExternalPort {external_port} -InternalIPAddress \"{internal_ip}\" -InternalPort {internal_port} -Protocol {protocol}"
+    ps_command = f"Add-NetNatStaticMapping -NatName \"{nat_name}\" -Protocol {protocol} -ExternalIPAddress 0.0.0.0 -ExternalPort {external_port} -InternalIPAddress \"{internal_ip}\" -InternalPort {internal_port}"
     return _run_powershell_command(ps_command)
 
 def remove_nat_rule(nat_name, rule):
     """Delete a NAT port mapping rule"""
     # PowerShell needs the specific rule object to remove it. A simple approach is to recreate the command.
     # A more robust way would be to pipe Get-NetNatStaticMapping to Remove-NetNatStaticMapping, but this is harder to form.
-    ps_command = f"Remove-NetNatStaticMapping -NatName \"{nat_name}\" -StaticMapping (Get-NetNatStaticMapping -NatName \"{nat_name}\" | Where-Object {{ $_.Protocol -eq '{rule['Protocol']}' -and $_.ExternalPort -eq {rule['RemotePort']} }}) -Confirm:$false"
+    ps_command = f"Remove-NetNatStaticMapping -NatName \"{nat_name}\" -StaticMapping (Get-NetNatStaticMapping -NatName \"{nat_name}\" | Where-Object {{ $_.Protocol -eq '{rule['Protocol']}' -and $_.ExternalPort -eq {rule['ExternalPort']} }}) -Confirm:$false"
     return _run_powershell_command(ps_command)
 
 def get_online_images():
@@ -355,3 +357,35 @@ def get_vm_network_adapter_status(vm_name):
         except json.JSONDecodeError:
             return []
     return []
+
+def invoke_command_in_vm(vm_name, username, password, command):
+    """Executes a PowerShell command inside a VM using PowerShell Direct."""
+    # Escape quotes and other special characters for PowerShell
+    escaped_command = command.replace("'", "''").replace('"', '"' )
+    escaped_password = password.replace("'", "''")
+
+    # Using a more robust script block execution with error handling
+    ps_command = f"""
+        $vm_name = \"{vm_name}\"
+        $username = \"{username}\"
+        $password = '{escaped_password}' | ConvertTo-SecureString -AsPlainText -Force
+        $cred = New-Object System.Management.Automation.PSCredential($username, $password)
+        
+        $ErrorActionPreference = "Stop"
+        try {{
+            $result = Invoke-Command -VMName $vm_name -Credential $cred -ScriptBlock {{ {escaped_command} }}
+            $output_str = $result | Out-String
+            $response = @{{ success = $true; output = $output_str }}
+        }} catch {{
+            $response = @{{ success = $false; error = $_.Exception.Message }}
+        }}
+        $response | ConvertTo-Json -Depth 3 -Compress
+    """
+    success, output = _run_powershell_command(ps_command)
+    if success and output:
+        try:
+            # The entire output is a single JSON string, so we parse it.
+            return True, json.loads(output)
+        except json.JSONDecodeError as e:
+            return False, {"success": False, "error": f"JSON parsing error: {e}\nRaw output: {output}"}
+    return success, {"success": False, "error": output}

@@ -105,6 +105,34 @@
     "DownloadUrl": "https://tinycorelinux.net/downloads.html"
   },
   {
+    "Name": "Ubuntu Cloud Image",
+    "Version": "22.04 LTS",
+    "Size": "1.1 GB",
+    "Description": "Canonical 官方发布的云环境专用 Ubuntu 镜像，支持 Hyper-V、KVM、OpenStack 等平台。",
+    "DownloadUrl": "https://mirrors.ustc.edu.cn/ubuntu-cloud-images/"
+  },
+  {
+    "Name": "TurnKey Linux LAMP Stack",
+    "Version": "17.1",
+    "Size": "1.2 GB",
+    "Description": "预配置的 Debian 系服务器镜像，内置 Apache、MySQL、PHP，适合快速部署 Web 服务。",
+    "DownloadUrl": "https://mirrors.ustc.edu.cn/turnkeylinux/images/"
+  },
+  {
+    "Name": "FreeBSD",
+    "Version": "14.1-RELEASE",
+    "Size": "1.0 GB",
+    "Description": "稳定、安全的类 Unix 系统，支持 Hyper-V 第二代虚拟机，适合网络服务与系统级开发。",
+    "DownloadUrl": "https://mirrors.aliyun.com/freebsd/releases/ISO-IMAGES/14.1/"
+  },
+  {
+    "Name": "QuickEMU 镜像配置集",
+    "Version": "2025.09",
+    "Size": "N/A",
+    "Description": "QuickEMU 项目支持的操作系统镜像配置列表，包含 Ubuntu、Debian、Fedora、Arch 等。",
+    "DownloadUrl": "https://github.com/quickemu-project/quickget_configs"
+  },
+  {
     "Name": "Windows Server",
     "Version": "2022 Evaluation",
     "Size": "5.7 GB",

@@ -33,3 +33,4 @@ venv/
 .venv/
 env/
 .env/
+HyperVManagerApp_Electron/node_modules/

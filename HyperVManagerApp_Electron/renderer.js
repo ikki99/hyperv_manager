@@ -425,6 +425,14 @@ async function initSettingsPage() {
         feedbackDiv.innerHTML = '<div class="alert alert-success">设置已保存！</div>';
         setTimeout(() => feedbackDiv.innerHTML = '', 3000);
     });
+
+    // Display app version
+    const appVersionSpan = document.getElementById('app-version');
+    if (appVersionSpan) {
+        window.electronAPI.getAppVersion().then(version => {
+            appVersionSpan.textContent = version;
+        });
+    }
 }
 
 // --- VM Page Logic ---

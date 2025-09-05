@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectDirectory: () => ipcRenderer.invoke('dialog:openDirectory'),
   getSetting: (key) => ipcRenderer.invoke('settings:get', key),
   setSetting: (key, value) => ipcRenderer.invoke('settings:set', key, value),
+  getAppVersion: () => ipcRenderer.invoke('app:get-version'),
   // Image Management APIs
   getLocalImages: (path) => ipcRenderer.invoke('images:getLocal', path),
   getOnlineImages: () => ipcRenderer.invoke('images:getOnline'),

@@ -22,7 +22,7 @@ function createWindow() {
   mainWindow.loadFile('index.html');
 
   // Open the DevTools.
-   mainWindow.webContents.openDevTools();
+    // mainWindow.webContents.openDevTools();
 }
 
 app.whenReady().then(() => {
@@ -76,8 +76,12 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle('settings:set', (event, key, value) => {
-    store.set(key, value);
-  });
+        store.set(key, value);
+      });
+
+      ipcMain.handle('app:get-version', () => {
+        return app.getVersion(); // Electron's app.getVersion() reads from package.json
+      });
 
   ipcMain.handle('dialog:openDirectory', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
